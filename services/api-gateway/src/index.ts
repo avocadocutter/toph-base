@@ -1,0 +1,150 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
+import helmet from '@fastify/helmet';
+import fastifyStatic from '@fastify/static';
+import { loadConfig } from './config.js';
+import { createPool } from './db/pool.js';
+import { initJwt } from './plugins/auth/jwt.js';
+import { authenticate } from './hooks/authenticate.js';
+import { hashPassword } from './plugins/auth/password.js';
+import { AppError } from './lib/errors.js';
+import authPlugin from './plugins/auth/index.js';
+import introspectionPlugin from './plugins/introspection/index.js';
+import restApiPlugin from './plugins/rest-api/index.js';
+import rlsPlugin from './plugins/rls/index.js';
+import adminPlugin from './plugins/admin/index.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function main() {
+  const config = loadConfig();
+
+  const fastify = Fastify({
+    logger: {
+      level: config.server.logLevel,
+      transport: process.env.NODE_ENV !== 'production'
+        ? { target: 'pino-pretty', options: { colorize: true } }
+        : undefined,
+    },
+  });
+
+  // Create database pool
+  const db = createPool(config.postgres);
+
+  // Decorate fastify with shared instances
+  fastify.decorate('db', db);
+  fastify.decorate('config', config);
+  fastify.decorate('authenticate', authenticate);
+
+  // Initialize JWT
+  initJwt(config);
+
+  // Register global plugins
+  await fastify.register(cors, {
+    origin: config.cors.allowedOrigins.split(',').map(s => s.trim()),
+    credentials: true,
+    exposedHeaders: ['Content-Range', 'X-Total-Count'],
+  });
+
+  await fastify.register(helmet, {
+    contentSecurityPolicy: false, // Disabled for dashboard SPA
+  });
+
+  await fastify.register(rateLimit, {
+    max: config.rateLimit.api,
+    timeWindow: '1 minute',
+  });
+
+  // Global error handler
+  fastify.setErrorHandler((error: Error, request, reply) => {
+    if (error instanceof AppError) {
+      reply.status(error.statusCode).send(error.toJSON());
+      return;
+    }
+
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed',
+          details: (error as unknown as { issues: unknown[] }).issues,
+        },
+      });
+      return;
+    }
+
+    request.log.error(error);
+    reply.status(500).send({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
+      },
+    });
+  });
+
+  // Register application plugins
+  await fastify.register(introspectionPlugin);
+  await fastify.register(authPlugin);
+  await fastify.register(restApiPlugin);
+  await fastify.register(rlsPlugin);
+  await fastify.register(adminPlugin);
+
+  // Serve dashboard static files if they exist
+  const dashboardPath = path.resolve(__dirname, '../../apps/dashboard/dist');
+  try {
+    await fastify.register(fastifyStatic, {
+      root: dashboardPath,
+      prefix: '/',
+      wildcard: false,
+      decorateReply: false,
+    });
+
+    // SPA fallback — serve index.html for unknown routes
+    fastify.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/rest/') || request.url.startsWith('/auth/') || request.url.startsWith('/admin/') || request.url.startsWith('/health')) {
+        reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
+      } else {
+        reply.sendFile('index.html');
+      }
+    });
+  } catch {
+    fastify.log.info('Dashboard static files not found, serving API only');
+  }
+
+  // Bootstrap admin user
+  await bootstrapAdmin(db, config);
+
+  // Start server
+  await fastify.listen({ port: config.server.port, host: config.server.host });
+  fastify.log.info(`toph-base gateway running on http://${config.server.host}:${config.server.port}`);
+}
+
+async function bootstrapAdmin(db: import('./db/pool.js').DbPool, config: ReturnType<typeof loadConfig>) {
+  try {
+    const existing = await db.query(
+      'SELECT id FROM toph_internal.users WHERE email = $1',
+      [config.admin.email],
+    );
+
+    if (existing.rows.length === 0) {
+      const passwordHash = await hashPassword(config.admin.password);
+      await db.query(
+        `INSERT INTO toph_internal.users (email, password_hash, role, email_confirmed)
+         VALUES ($1, $2, 'admin', true)`,
+        [config.admin.email, passwordHash],
+      );
+      console.log(`Admin user created: ${config.admin.email}`);
+    }
+  } catch (err) {
+    console.error('Failed to bootstrap admin user:', err);
+  }
+}
+
+main().catch((err) => {
+  console.error('Failed to start toph-base:', err);
+  process.exit(1);
+});
