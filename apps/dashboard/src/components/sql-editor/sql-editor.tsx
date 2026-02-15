@@ -1,21 +1,50 @@
-import { useRef, useCallback, type MutableRefObject } from 'react';
+import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
 import { EditorView, keymap } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { sql, PostgreSQL } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { autocompletion } from '@codemirror/autocomplete';
 import { basicSetup } from 'codemirror';
 
+const lightTheme = EditorView.theme({
+  '&': {
+    backgroundColor: 'var(--color-card)',
+    color: 'var(--color-card-foreground)',
+  },
+  '.cm-gutters': {
+    backgroundColor: 'var(--color-background)',
+    color: 'var(--color-muted-foreground)',
+    borderRight: '1px solid var(--color-border)',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: 'var(--color-accent)',
+  },
+  '.cm-activeLine': {
+    backgroundColor: 'var(--color-accent)',
+  },
+  '.cm-cursor': {
+    borderLeftColor: 'var(--color-foreground)',
+  },
+  '.cm-selectionBackground': {
+    backgroundColor: 'oklch(0.55 0.15 250 / 0.2) !important',
+  },
+  '&.cm-focused .cm-selectionBackground': {
+    backgroundColor: 'oklch(0.55 0.15 250 / 0.3) !important',
+  },
+});
+
 interface SqlEditorProps {
   onExecute: (query: string) => void;
   initialValue?: string;
   viewRef?: MutableRefObject<EditorView | null>;
+  theme?: 'light' | 'dark';
 }
 
-export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewRef }: SqlEditorProps) {
+export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewRef, theme = 'dark' }: SqlEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const themeCompartment = useRef(new Compartment());
 
   const editorCallback = useCallback(
     (node: HTMLDivElement | null) => {
@@ -38,7 +67,7 @@ export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewR
         extensions: [
           basicSetup,
           sql({ dialect: PostgreSQL }),
-          oneDark,
+          themeCompartment.current.of(theme === 'dark' ? oneDark : lightTheme),
           autocompletion(),
           keymap.of([...defaultKeymap, indentWithTab]),
           executeKeymap,
@@ -56,6 +85,13 @@ export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewR
     },
     [onExecute, initialValue],
   );
+
+  useEffect(() => {
+    if (!viewRef.current) return;
+    viewRef.current.dispatch({
+      effects: themeCompartment.current.reconfigure(theme === 'dark' ? oneDark : lightTheme),
+    });
+  }, [theme]);
 
   return (
     <div ref={editorCallback} className="h-full min-h-[200px] overflow-hidden rounded-md border border-border" />

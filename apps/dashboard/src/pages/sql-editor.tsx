@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
+import { useResolvedTheme } from '@/stores/ui-store';
 import { SqlEditor } from '@/components/sql-editor/sql-editor';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { toast } from 'sonner';
 export function SqlEditorPage() {
   const [result, setResult] = useState<SqlResult | null>(null);
   const currentProject = useProjectStore((s) => s.currentProject);
+  const resolvedTheme = useResolvedTheme();
   const editorViewRef = useRef<EditorView | null>(null);
 
   const executeSql = useMutation({
@@ -71,6 +73,7 @@ export function SqlEditorPage() {
           onExecute={handleExecute}
           initialValue={`SELECT * FROM ${currentProject?.schemaName ?? 'public'}.users LIMIT 10;`}
           viewRef={editorViewRef}
+          theme={resolvedTheme}
         />
       </div>
 

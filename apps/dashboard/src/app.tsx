@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { useResolvedTheme } from './stores/ui-store';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import { LoginPage } from './pages/login';
 import { ProjectsPage } from './pages/projects';
@@ -29,6 +30,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const resolvedTheme = useResolvedTheme();
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -60,7 +63,7 @@ export function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-      <Toaster theme="dark" position="bottom-right" richColors />
+      <Toaster theme={resolvedTheme} position="bottom-right" richColors />
     </QueryClientProvider>
   );
 }
