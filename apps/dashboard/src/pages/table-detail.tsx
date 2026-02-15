@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import type { TableDetail, PaginatedResponse, RlsPolicy } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -13,32 +14,34 @@ import { Shield, Table, Rows3, Key } from 'lucide-react';
 type Tab = 'data' | 'structure' | 'rls';
 
 export function TableDetailPage() {
-  const { schema = 'public', table = '' } = useParams();
+  const { table = '' } = useParams();
   const [activeTab, setActiveTab] = useState<Tab>('data');
   const queryClient = useQueryClient();
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   const tableInfo = useQuery({
-    queryKey: ['admin-table', schema, table],
-    queryFn: () => api.get<TableDetail>(`/admin/tables/${schema}/${table}`),
+    queryKey: ['admin-table', currentProject?.ref, table],
+    queryFn: () => api.get<TableDetail>(projectAdminPath(`/tables/${table}`)),
+    enabled: !!currentProject,
   });
 
   const tableData = useQuery({
-    queryKey: ['table-data', schema, table],
-    queryFn: () => api.get<PaginatedResponse<Record<string, unknown>>>(`/rest/v1/${table}?limit=50`),
-    enabled: activeTab === 'data',
+    queryKey: ['table-data', currentProject?.ref, table],
+    queryFn: () => api.get<PaginatedResponse<Record<string, unknown>>>(projectAdminPath(`/tables/${table}/rows?limit=50`)),
+    enabled: activeTab === 'data' && !!currentProject,
   });
 
   const policies = useQuery({
-    queryKey: ['policies', schema, table],
-    queryFn: () => api.get<RlsPolicy[]>(`/admin/rls/${schema}/${table}/policies`),
-    enabled: activeTab === 'rls',
+    queryKey: ['policies', currentProject?.ref, table],
+    queryFn: () => api.get<RlsPolicy[]>(projectAdminPath(`/rls/${table}/policies`)),
+    enabled: activeTab === 'rls' && !!currentProject,
   });
 
   const toggleRls = useMutation({
     mutationFn: (enable: boolean) =>
-      api.post(`/admin/rls/${schema}/${table}/${enable ? 'enable' : 'disable'}`),
+      api.post(projectAdminPath(`/rls/${table}/${enable ? 'enable' : 'disable'}`)),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-table', schema, table] });
+      queryClient.invalidateQueries({ queryKey: ['admin-table', currentProject?.ref, table] });
       toast.success('RLS updated');
     },
     onError: (err) => toast.error(err.message),
@@ -102,7 +105,7 @@ export function TableDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">{schema}.{table}</h1>
+          <h1 className="text-lg font-bold">{table}</h1>
           <p className="text-xs text-muted-foreground">
             {info?.rowCount ?? 0} rows / {info?.columns.length ?? 0} columns
           </p>

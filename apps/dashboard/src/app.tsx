@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { DashboardLayout } from './components/layout/dashboard-layout';
 import { LoginPage } from './pages/login';
+import { ProjectsPage } from './pages/projects';
 import { TablesPage } from './pages/tables';
 import { TableDetailPage } from './pages/table-detail';
 import { SqlEditorPage } from './pages/sql-editor';
@@ -34,6 +35,14 @@ export function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/"
             element={
               <ProtectedRoute>
@@ -43,7 +52,7 @@ export function App() {
           >
             <Route index element={<OverviewPage />} />
             <Route path="tables" element={<TablesPage />} />
-            <Route path="tables/:schema/:table" element={<TableDetailPage />} />
+            <Route path="tables/:table" element={<TableDetailPage />} />
             <Route path="sql" element={<SqlEditorPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="policies" element={<PoliciesPage />} />

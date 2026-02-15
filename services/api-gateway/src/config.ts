@@ -9,7 +9,7 @@ const configSchema = z.object({
     password: z.string().default('changeme'),
   }),
   jwt: z.object({
-    secret: z.string().min(32).default('change-this-to-a-random-string-at-least-32-chars'),
+    platformSecret: z.string().min(32).default('change-this-to-a-random-string-at-least-32-chars'),
     accessTokenExpiry: z.coerce.number().default(3600),
     refreshTokenExpiry: z.coerce.number().default(604800),
   }),
@@ -48,7 +48,7 @@ export function loadConfig(): Config {
       password: env.POSTGRES_PASSWORD,
     },
     jwt: {
-      secret: env.JWT_SECRET,
+      platformSecret: env.JWT_PLATFORM_SECRET ?? env.JWT_SECRET,
       accessTokenExpiry: env.ACCESS_TOKEN_EXPIRY,
       refreshTokenExpiry: env.REFRESH_TOKEN_EXPIRY,
     },

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -46,22 +47,23 @@ const columns: ColumnDef<TableSummary, unknown>[] = [
 export function TablesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentProject = useProjectStore((s) => s.currentProject);
   const [showCreate, setShowCreate] = useState(false);
   const [newTableName, setNewTableName] = useState('');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-tables'],
-    queryFn: () => api.get<TableSummary[]>('/admin/tables'),
+    queryKey: ['admin-tables', currentProject?.ref],
+    queryFn: () => api.get<TableSummary[]>(projectAdminPath('/tables')),
+    enabled: !!currentProject,
   });
 
   const createTable = useMutation({
     mutationFn: (name: string) =>
-      api.post('/admin/tables', {
+      api.post(projectAdminPath('/tables'), {
         name,
-        schema: 'public',
         columns: [
-          { name: 'id', type: 'uuid DEFAULT gen_random_uuid()', primaryKey: true, nullable: false },
-          { name: 'created_at', type: 'timestamptz DEFAULT now()', nullable: false },
+          { name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', primaryKey: true, nullable: false },
+          { name: 'created_at', type: 'timestamptz', defaultValue: 'now()', nullable: false },
         ],
       }),
     onSuccess: () => {
@@ -112,7 +114,7 @@ export function TablesPage() {
           if (!row) return;
           const idx = row.rowIndex - 1; // header row is 0
           if (idx >= 0 && data?.[idx]) {
-            navigate(`/tables/${data[idx].schema}/${data[idx].name}`);
+            navigate(`/tables/${data[idx].name}`);
           }
         }}
         className="cursor-pointer"

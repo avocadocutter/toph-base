@@ -3,15 +3,13 @@ import type { TableInfo, ColumnInfo, ForeignKeyInfo, SchemaCache } from './types
 
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
-let cache: SchemaCache = {
-  tables: new Map(),
-  lastUpdated: 0,
-};
+const cacheMap = new Map<string, SchemaCache>();
 
-export async function introspectSchema(db: DbPool, schemaName = 'public'): Promise<Map<string, TableInfo>> {
+export async function introspectSchema(db: DbPool, schemaName: string): Promise<Map<string, TableInfo>> {
   const now = Date.now();
-  if (cache.lastUpdated > 0 && now - cache.lastUpdated < CACHE_TTL_MS) {
-    return cache.tables;
+  const cached = cacheMap.get(schemaName);
+  if (cached && cached.lastUpdated > 0 && now - cached.lastUpdated < CACHE_TTL_MS) {
+    return cached.tables;
   }
 
   const tables = await fetchTables(db, schemaName);
@@ -33,7 +31,7 @@ export async function introspectSchema(db: DbPool, schemaName = 'public'): Promi
         columnDefault: c.column_default,
         maxLength: c.character_maximum_length,
         isIdentity: c.is_identity === 'YES',
-        isPrimaryKey: false, // set below
+        isPrimaryKey: false,
       }));
 
     const pks = primaryKeys
@@ -67,16 +65,25 @@ export async function introspectSchema(db: DbPool, schemaName = 'public'): Promi
     });
   }
 
-  cache = { tables: tableMap, lastUpdated: now };
+  cacheMap.set(schemaName, { tables: tableMap, lastUpdated: now });
   return tableMap;
 }
 
-export function invalidateCache() {
-  cache.lastUpdated = 0;
+export function invalidateCache(schemaName?: string) {
+  if (schemaName && schemaName !== '*') {
+    const cached = cacheMap.get(schemaName);
+    if (cached) {
+      cached.lastUpdated = 0;
+    }
+  } else {
+    for (const cached of cacheMap.values()) {
+      cached.lastUpdated = 0;
+    }
+  }
 }
 
-export function getCache(): SchemaCache {
-  return cache;
+export function getCache(schemaName: string): SchemaCache | undefined {
+  return cacheMap.get(schemaName);
 }
 
 async function fetchTables(db: DbPool, schema: string) {
@@ -144,9 +151,13 @@ export async function listenForSchemaChanges(db: DbPool) {
   const client = await db.connect();
   client.on('notification', (msg) => {
     if (msg.channel === 'toph_schema_change') {
-      invalidateCache();
+      const schemaName = msg.payload;
+      if (schemaName) {
+        invalidateCache(schemaName);
+      } else {
+        invalidateCache();
+      }
     }
   });
   await client.query('LISTEN toph_schema_change');
-  // Don't release this client — it needs to stay connected for LISTEN
 }

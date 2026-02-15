@@ -1,3 +1,16 @@
+export interface Project {
+  id: string;
+  ref: string;
+  name: string;
+  schemaName: string;
+  status: string;
+  anonKey?: string;
+  serviceRoleKey?: string;
+  memberRole: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TableSummary {
   schema: string;
   name: string;

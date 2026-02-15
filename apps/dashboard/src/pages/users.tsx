@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import type { UserRecord, PaginatedResponse } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -9,36 +10,28 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/utils';
-import { Search, UserX, UserCheck, ShieldAlert } from 'lucide-react';
+import { Search, UserX, UserCheck } from 'lucide-react';
 
 export function UsersPage() {
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-users', search],
+    queryKey: ['admin-users', currentProject?.ref, search],
     queryFn: () =>
       api.get<PaginatedResponse<UserRecord>>(
-        `/admin/users?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+        projectAdminPath(`/users?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`),
       ),
+    enabled: !!currentProject,
   });
 
   const toggleDisable = useMutation({
     mutationFn: ({ id, isDisabled }: { id: string; isDisabled: boolean }) =>
-      api.patch(`/admin/users/${id}`, { isDisabled }),
+      api.patch(projectAdminPath(`/users/${id}`), { isDisabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success('User updated');
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const toggleRole = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) =>
-      api.patch(`/admin/users/${id}`, { role }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      toast.success('Role updated');
     },
     onError: (err) => toast.error(err.message),
   });
@@ -53,7 +46,7 @@ export function UsersPage() {
       accessorKey: 'role',
       header: 'Role',
       cell: ({ row }) => (
-        <Badge variant={row.original.role === 'admin' ? 'default' : 'secondary'}>
+        <Badge variant="secondary">
           {row.original.role}
         </Badge>
       ),
@@ -83,34 +76,19 @@ export function UsersPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            title={row.original.isDisabled ? 'Enable user' : 'Disable user'}
-            onClick={() =>
-              toggleDisable.mutate({
-                id: row.original.id,
-                isDisabled: !row.original.isDisabled,
-              })
-            }
-          >
-            {row.original.isDisabled ? <UserCheck size={14} /> : <UserX size={14} />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title={row.original.role === 'admin' ? 'Demote to user' : 'Promote to admin'}
-            onClick={() =>
-              toggleRole.mutate({
-                id: row.original.id,
-                role: row.original.role === 'admin' ? 'authenticated' : 'admin',
-              })
-            }
-          >
-            <ShieldAlert size={14} />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          title={row.original.isDisabled ? 'Enable user' : 'Disable user'}
+          onClick={() =>
+            toggleDisable.mutate({
+              id: row.original.id,
+              isDisabled: !row.original.isDisabled,
+            })
+          }
+        >
+          {row.original.isDisabled ? <UserCheck size={14} /> : <UserX size={14} />}
+        </Button>
       ),
     },
   ];

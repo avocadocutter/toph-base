@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -7,6 +8,7 @@ import { RefreshCw, Plug } from 'lucide-react';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   const health = useQuery({
     queryKey: ['health'],
@@ -20,7 +22,7 @@ export function SettingsPage() {
 
   const settings = useQuery({
     queryKey: ['admin-settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/admin/settings'),
+    queryFn: () => api.get<Record<string, unknown>>('/platform/admin/settings'),
   });
 
   const extensions = useQuery({
@@ -29,11 +31,11 @@ export function SettingsPage() {
       api.get<{
         installed: { name: string; version: string }[];
         available: { name: string; default_version: string; comment: string }[];
-      }>('/admin/extensions'),
+      }>('/platform/admin/extensions'),
   });
 
   const enableExtension = useMutation({
-    mutationFn: (name: string) => api.post(`/admin/extensions/${name}`),
+    mutationFn: (name: string) => api.post(`/platform/admin/extensions/${name}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-extensions'] });
       toast.success('Extension enabled');
@@ -42,7 +44,7 @@ export function SettingsPage() {
   });
 
   const refreshSchema = useMutation({
-    mutationFn: () => api.post('/admin/schema/refresh'),
+    mutationFn: () => api.post(projectAdminPath('/schema/refresh')),
     onSuccess: () => {
       queryClient.invalidateQueries();
       toast.success('Schema cache refreshed');
@@ -70,10 +72,12 @@ export function SettingsPage() {
             </div>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => refreshSchema.mutate()}>
-          <RefreshCw size={14} />
-          Refresh Schema Cache
-        </Button>
+        {currentProject && (
+          <Button size="sm" variant="outline" onClick={() => refreshSchema.mutate()}>
+            <RefreshCw size={14} />
+            Refresh Schema Cache
+          </Button>
+        )}
       </section>
 
       {/* Settings */}

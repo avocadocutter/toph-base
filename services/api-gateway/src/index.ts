@@ -5,8 +5,8 @@ import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
-import { initJwt } from './plugins/auth/jwt.js';
-import { authenticate } from './hooks/authenticate.js';
+import { initPlatformJwt } from './plugins/auth/jwt.js';
+import { authenticatePlatform } from './hooks/authenticate.js';
 import { hashPassword } from './plugins/auth/password.js';
 import { AppError } from './lib/errors.js';
 import authPlugin from './plugins/auth/index.js';
@@ -14,6 +14,7 @@ import introspectionPlugin from './plugins/introspection/index.js';
 import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
 import adminPlugin from './plugins/admin/index.js';
+import projectsPlugin from './plugins/projects/index.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -37,10 +38,10 @@ async function main() {
   // Decorate fastify with shared instances
   fastify.decorate('db', db);
   fastify.decorate('config', config);
-  fastify.decorate('authenticate', authenticate);
+  fastify.decorate('authenticate', authenticatePlatform);
 
-  // Initialize JWT
-  initJwt(config);
+  // Initialize platform JWT
+  initPlatformJwt(config);
 
   // Register global plugins
   await fastify.register(cors, {
@@ -50,7 +51,7 @@ async function main() {
   });
 
   await fastify.register(helmet, {
-    contentSecurityPolicy: false, // Disabled for dashboard SPA
+    contentSecurityPolicy: false,
   });
 
   await fastify.register(rateLimit, {
@@ -89,6 +90,7 @@ async function main() {
   // Register application plugins
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
+  await fastify.register(projectsPlugin);
   await fastify.register(restApiPlugin);
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
@@ -105,7 +107,11 @@ async function main() {
 
     // SPA fallback — serve index.html for unknown routes
     fastify.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith('/rest/') || request.url.startsWith('/auth/') || request.url.startsWith('/admin/') || request.url.startsWith('/health')) {
+      if (
+        request.url.startsWith('/platform/') ||
+        request.url.startsWith('/project/') ||
+        request.url.startsWith('/health')
+      ) {
         reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
       } else {
         reply.sendFile('index.html');
@@ -126,14 +132,14 @@ async function main() {
 async function bootstrapAdmin(db: import('./db/pool.js').DbPool, config: ReturnType<typeof loadConfig>) {
   try {
     const existing = await db.query(
-      'SELECT id FROM toph_internal.users WHERE email = $1',
+      'SELECT id FROM toph_internal.platform_users WHERE email = $1',
       [config.admin.email],
     );
 
     if (existing.rows.length === 0) {
       const passwordHash = await hashPassword(config.admin.password);
       await db.query(
-        `INSERT INTO toph_internal.users (email, password_hash, role, email_confirmed)
+        `INSERT INTO toph_internal.platform_users (email, password_hash, role, email_confirmed)
          VALUES ($1, $2, 'admin', true)`,
         [config.admin.email, passwordHash],
       );

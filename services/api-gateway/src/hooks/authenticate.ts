@@ -1,8 +1,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { verifyAccessToken } from '../plugins/auth/jwt.js';
+import { verifyPlatformAccessToken, verifyProjectAccessToken } from '../plugins/auth/jwt.js';
 import { UnauthorizedError } from '../lib/errors.js';
 
-export async function authenticate(request: FastifyRequest, _reply: FastifyReply) {
+// ── Platform Auth Hooks ──
+
+export async function authenticatePlatform(request: FastifyRequest, _reply: FastifyReply) {
   const authHeader = request.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     throw new UnauthorizedError('Missing or invalid authorization header');
@@ -10,35 +12,69 @@ export async function authenticate(request: FastifyRequest, _reply: FastifyReply
 
   const token = authHeader.slice(7);
   try {
-    const payload = await verifyAccessToken(token);
-    request.jwtPayload = payload;
-    request.userId = payload.sub;
-    request.userRole = payload.role;
+    const payload = await verifyPlatformAccessToken(token);
+    request.platformPayload = payload;
+    request.platformUserId = payload.sub;
   } catch {
-    throw new UnauthorizedError('Invalid or expired access token');
+    throw new UnauthorizedError('Invalid or expired platform access token');
   }
 }
 
-export async function authenticateOptional(request: FastifyRequest, _reply: FastifyReply) {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return; // No token, continue as anonymous
+export async function requirePlatformAdmin(request: FastifyRequest, reply: FastifyReply) {
+  await authenticatePlatform(request, reply);
+  if (request.platformPayload?.role !== 'admin') {
+    throw new UnauthorizedError('Platform admin access required');
+  }
+}
+
+// ── Project Auth Hooks ──
+
+export async function authenticateProject(request: FastifyRequest, _reply: FastifyReply) {
+  const project = request.project;
+  if (!project) {
+    throw new UnauthorizedError('Project context not resolved');
   }
 
-  const token = authHeader.slice(7);
+  const token = extractProjectToken(request);
+  if (!token) {
+    throw new UnauthorizedError('Missing authorization. Provide a Bearer token or apikey header.');
+  }
+
   try {
-    const payload = await verifyAccessToken(token);
+    const payload = await verifyProjectAccessToken(token, project.ref, project.jwtSecret);
+    request.projectPayload = payload;
     request.jwtPayload = payload;
     request.userId = payload.sub;
     request.userRole = payload.role;
   } catch {
-    // Invalid token, continue as anonymous
+    throw new UnauthorizedError('Invalid or expired project access token');
   }
 }
 
-export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply) {
-  await authenticate(request, _reply);
-  if (request.userRole !== 'admin') {
-    throw new UnauthorizedError('Admin access required');
+export async function authenticateProjectOptional(request: FastifyRequest, _reply: FastifyReply) {
+  const project = request.project;
+  if (!project) return;
+
+  const token = extractProjectToken(request);
+  if (!token) return;
+
+  try {
+    const payload = await verifyProjectAccessToken(token, project.ref, project.jwtSecret);
+    request.projectPayload = payload;
+    request.jwtPayload = payload;
+    request.userId = payload.sub;
+    request.userRole = payload.role;
+  } catch {
+    // Invalid token — continue as anonymous
   }
+}
+
+function extractProjectToken(request: FastifyRequest): string | null {
+  const authHeader = request.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  const apikey = request.headers['apikey'] as string | undefined;
+  if (apikey) return apikey;
+  return null;
 }

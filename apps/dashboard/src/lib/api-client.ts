@@ -1,4 +1,5 @@
 import { useAuthStore } from '../stores/auth-store';
+import { useProjectStore } from '../stores/project-store';
 
 const BASE_URL = '';
 
@@ -40,3 +41,15 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
+
+export function projectAdminPath(path: string): string {
+  const ref = useProjectStore.getState().currentProject?.ref;
+  if (!ref) throw new Error('No project selected');
+  return `/platform/projects/${ref}/admin${path}`;
+}
+
+export function projectRestPath(path: string): string {
+  const ref = useProjectStore.getState().currentProject?.ref;
+  if (!ref) throw new Error('No project selected');
+  return `/project/${ref}/rest/v1${path}`;
+}

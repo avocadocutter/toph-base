@@ -17,7 +17,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/auth/signin', {
+      const response = await fetch('/platform/auth/signin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -30,7 +30,7 @@ export function LoginPage() {
 
       const data = await response.json();
       setAuth(data.tokens.accessToken, data.tokens.refreshToken, data.user);
-      navigate('/');
+      navigate('/projects');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Login failed');
     } finally {

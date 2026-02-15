@@ -1,23 +1,31 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary, PaginatedResponse, UserRecord } from '@/types';
 import { Database, Users, Shield, Activity } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 
 export function OverviewPage() {
+  const currentProject = useProjectStore((s) => s.currentProject);
+
   const tables = useQuery({
-    queryKey: ['admin-tables'],
-    queryFn: () => api.get<TableSummary[]>('/admin/tables'),
+    queryKey: ['admin-tables', currentProject?.ref],
+    queryFn: () => api.get<TableSummary[]>(projectAdminPath('/tables')),
+    enabled: !!currentProject,
   });
 
   const users = useQuery({
-    queryKey: ['admin-users'],
-    queryFn: () => api.get<PaginatedResponse<UserRecord>>('/admin/users?limit=1'),
+    queryKey: ['admin-users', currentProject?.ref],
+    queryFn: () => api.get<PaginatedResponse<UserRecord>>(projectAdminPath('/users?limit=1')),
+    enabled: !!currentProject,
   });
 
   const health = useQuery({
     queryKey: ['health'],
     queryFn: () => api.get<{ status: string; database: { connected: boolean; version: string } }>('/health'),
   });
+
+  if (!currentProject) return <Navigate to="/projects" replace />;
 
   const stats = [
     {
@@ -77,7 +85,7 @@ export function OverviewPage() {
             {tables.data.map((table) => (
               <a
                 key={table.name}
-                href={`/tables/${table.schema}/${table.name}`}
+                href={`/tables/${table.name}`}
                 className="flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 text-sm transition-colors hover:bg-accent"
               >
                 <div className="flex items-center gap-2">

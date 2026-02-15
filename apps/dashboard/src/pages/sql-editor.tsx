@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import { SqlEditor } from '@/components/sql-editor/sql-editor';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
@@ -11,9 +12,10 @@ import { toast } from 'sonner';
 
 export function SqlEditorPage() {
   const [result, setResult] = useState<SqlResult | null>(null);
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   const executeSql = useMutation({
-    mutationFn: (query: string) => api.post<SqlResult>('/admin/sql', { query }),
+    mutationFn: (query: string) => api.post<SqlResult>(projectAdminPath('/sql'), { query }),
     onSuccess: (data) => setResult(data),
     onError: (err) => {
       toast.error(err.message);
@@ -62,7 +64,7 @@ export function SqlEditorPage() {
       <div className="flex-1 min-h-0">
         <SqlEditor
           onExecute={handleExecute}
-          initialValue="SELECT * FROM toph_internal.users LIMIT 10;"
+          initialValue={`SELECT * FROM ${currentProject?.schemaName ?? 'public'}.users LIMIT 10;`}
         />
       </div>
 

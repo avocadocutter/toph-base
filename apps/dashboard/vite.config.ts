@@ -13,9 +13,8 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/auth': 'http://localhost:8000',
-      '/rest': 'http://localhost:8000',
-      '/admin': 'http://localhost:8000',
+      '/platform': 'http://localhost:8000',
+      '/project': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
     },
   },

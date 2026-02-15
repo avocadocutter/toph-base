@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
+import { api, projectAdminPath } from '@/lib/api-client';
+import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary, RlsPolicy } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import { Plus, Trash2 } from 'lucide-react';
 
 export function PoliciesPage() {
   const queryClient = useQueryClient();
+  const currentProject = useProjectStore((s) => s.currentProject);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [newPolicy, setNewPolicy] = useState({
@@ -22,19 +24,20 @@ export function PoliciesPage() {
   });
 
   const tables = useQuery({
-    queryKey: ['admin-tables'],
-    queryFn: () => api.get<TableSummary[]>('/admin/tables'),
+    queryKey: ['admin-tables', currentProject?.ref],
+    queryFn: () => api.get<TableSummary[]>(projectAdminPath('/tables')),
+    enabled: !!currentProject,
   });
 
   const policies = useQuery({
-    queryKey: ['policies', 'public', selectedTable],
-    queryFn: () => api.get<RlsPolicy[]>(`/admin/rls/public/${selectedTable}/policies`),
-    enabled: !!selectedTable,
+    queryKey: ['policies', currentProject?.ref, selectedTable],
+    queryFn: () => api.get<RlsPolicy[]>(projectAdminPath(`/rls/${selectedTable}/policies`)),
+    enabled: !!selectedTable && !!currentProject,
   });
 
   const createPolicy = useMutation({
     mutationFn: () =>
-      api.post(`/admin/rls/public/${selectedTable}/policies`, {
+      api.post(projectAdminPath(`/rls/${selectedTable}/policies`), {
         name: newPolicy.name,
         command: newPolicy.command,
         using: newPolicy.using || undefined,
@@ -51,7 +54,7 @@ export function PoliciesPage() {
 
   const deletePolicy = useMutation({
     mutationFn: (name: string) =>
-      api.delete(`/admin/rls/public/${selectedTable}/policies/${name}`),
+      api.delete(projectAdminPath(`/rls/${selectedTable}/policies/${name}`)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['policies'] });
       toast.success('Policy deleted');
@@ -118,7 +121,7 @@ export function PoliciesPage() {
           <option value="">Select a table...</option>
           {tables.data?.map((t) => (
             <option key={t.name} value={t.name}>
-              {t.schema}.{t.name}
+              {t.name}
               {t.rlsEnabled ? ' (RLS)' : ''}
             </option>
           ))}
