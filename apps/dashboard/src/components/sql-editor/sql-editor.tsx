@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, type MutableRefObject } from 'react';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
@@ -10,9 +10,10 @@ import { basicSetup } from 'codemirror';
 interface SqlEditorProps {
   onExecute: (query: string) => void;
   initialValue?: string;
+  viewRef?: MutableRefObject<EditorView | null>;
 }
 
-export function SqlEditor({ onExecute, initialValue = '' }: SqlEditorProps) {
+export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewRef }: SqlEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
@@ -50,6 +51,7 @@ export function SqlEditor({ onExecute, initialValue = '' }: SqlEditorProps) {
       });
 
       viewRef.current = new EditorView({ state, parent: node });
+      if (externalViewRef) externalViewRef.current = viewRef.current;
       editorRef.current = node;
     },
     [onExecute, initialValue],

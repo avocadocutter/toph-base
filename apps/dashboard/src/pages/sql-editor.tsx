@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
@@ -7,12 +7,14 @@ import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
 import type { SqlResult } from '@/types';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { EditorView } from '@codemirror/view';
 import { Play, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function SqlEditorPage() {
   const [result, setResult] = useState<SqlResult | null>(null);
   const currentProject = useProjectStore((s) => s.currentProject);
+  const editorViewRef = useRef<EditorView | null>(null);
 
   const executeSql = useMutation({
     mutationFn: (query: string) => api.post<SqlResult>(projectAdminPath('/sql'), { query }),
@@ -52,7 +54,10 @@ export function SqlEditorPage() {
           )}
           <Button
             size="sm"
-            onClick={() => handleExecute('')}
+            onClick={() => {
+              const query = editorViewRef.current?.state.doc.toString().trim() ?? '';
+              if (query) handleExecute(query);
+            }}
             disabled={executeSql.isPending}
           >
             <Play size={14} />
@@ -65,6 +70,7 @@ export function SqlEditorPage() {
         <SqlEditor
           onExecute={handleExecute}
           initialValue={`SELECT * FROM ${currentProject?.schemaName ?? 'public'}.users LIMIT 10;`}
+          viewRef={editorViewRef}
         />
       </div>
 
