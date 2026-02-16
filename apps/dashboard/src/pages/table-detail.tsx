@@ -114,38 +114,16 @@ export function TableDetailPage() {
   return (
     <div className="space-y-4">
       {/* Breadcrumb + Header */}
-      <div className="space-y-2">
-        <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <button
-            onClick={() => navigate('/tables')}
-            className="hover:text-foreground transition-colors"
-          >
-            Tables
-          </button>
-          <ChevronRight size={14} />
-          <h1 className="text-lg font-bold text-foreground">{table}</h1>
-        </nav>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Rows3 size={14} />
-            {info?.rowCount ?? 0} rows
-          </span>
-          <span className="text-border">&middot;</span>
-          <span className="flex items-center gap-1.5">
-            <Table size={14} />
-            {info?.columns.length ?? 0} columns
-          </span>
-          {info?.rlsEnabled && (
-            <>
-              <span className="text-border">&middot;</span>
-              <Badge variant="outline" className="gap-1">
-                <Shield size={12} />
-                RLS
-              </Badge>
-            </>
-          )}
-        </div>
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <button
+          onClick={() => navigate('/tables')}
+          className="hover:text-foreground transition-colors cursor-pointer"
+        >
+          Tables
+        </button>
+        <ChevronRight size={14} />
+        <h1 className="text-lg font-bold text-foreground">{table}</h1>
+      </nav>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
