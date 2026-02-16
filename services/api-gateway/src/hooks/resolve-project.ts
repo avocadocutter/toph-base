@@ -12,6 +12,37 @@ interface CacheEntry {
 
 const projectCache = new Map<string, CacheEntry>();
 
+export async function resolveProjectByRef(db: DbPool, ref: string): Promise<ResolvedProject> {
+  const now = Date.now();
+  const cached = projectCache.get(ref);
+  if (cached && cached.expiresAt > now) {
+    return cached.project;
+  }
+
+  const result = await db.query(
+    `SELECT id, ref, schema_name, jwt_secret, status
+     FROM toph_internal.projects
+     WHERE ref = $1 AND status != 'deleted'`,
+    [ref],
+  );
+
+  if (result.rows.length === 0) {
+    throw new NotFoundError(`Project '${ref}' not found`);
+  }
+
+  const row = result.rows[0];
+  const project: ResolvedProject = {
+    id: row.id,
+    ref: row.ref,
+    schemaName: row.schema_name,
+    jwtSecret: row.jwt_secret,
+    status: row.status,
+  };
+
+  projectCache.set(ref, { project, expiresAt: now + CACHE_TTL_MS });
+  return project;
+}
+
 export function createProjectResolver(db: DbPool) {
   return async function resolveProject(request: FastifyRequest, _reply: FastifyReply) {
     const { projectRef } = request.params as { projectRef: string };
@@ -19,35 +50,7 @@ export function createProjectResolver(db: DbPool) {
       throw new NotFoundError('Project reference is required');
     }
 
-    const now = Date.now();
-    const cached = projectCache.get(projectRef);
-    if (cached && cached.expiresAt > now) {
-      request.project = cached.project;
-      return;
-    }
-
-    const result = await db.query(
-      `SELECT id, ref, schema_name, jwt_secret, status
-       FROM toph_internal.projects
-       WHERE ref = $1 AND status != 'deleted'`,
-      [projectRef],
-    );
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError(`Project '${projectRef}' not found`);
-    }
-
-    const row = result.rows[0];
-    const project: ResolvedProject = {
-      id: row.id,
-      ref: row.ref,
-      schemaName: row.schema_name,
-      jwtSecret: row.jwt_secret,
-      status: row.status,
-    };
-
-    projectCache.set(projectRef, { project, expiresAt: now + CACHE_TTL_MS });
-    request.project = project;
+    request.project = await resolveProjectByRef(db, projectRef);
   };
 }
 

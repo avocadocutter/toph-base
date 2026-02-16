@@ -15,6 +15,8 @@ import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
 import adminPlugin from './plugins/admin/index.js';
 import projectsPlugin from './plugins/projects/index.js';
+import compatRestPlugin from './plugins/compat-rest/index.js';
+import compatAuthPlugin from './plugins/compat-auth/index.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -47,6 +49,7 @@ async function main() {
   await fastify.register(cors, {
     origin: config.cors.allowedOrigins.split(',').map(s => s.trim()),
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Prefer', 'apikey', 'X-Client-Info'],
     exposedHeaders: ['Content-Range', 'X-Total-Count'],
   });
 
@@ -94,6 +97,8 @@ async function main() {
   await fastify.register(restApiPlugin);
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
+  await fastify.register(compatRestPlugin);
+  await fastify.register(compatAuthPlugin);
 
   // Serve dashboard static files if they exist
   const dashboardPath = path.resolve(__dirname, '../../apps/dashboard/dist');
@@ -110,6 +115,8 @@ async function main() {
       if (
         request.url.startsWith('/platform/') ||
         request.url.startsWith('/project/') ||
+        request.url.startsWith('/rest/') ||
+        request.url.startsWith('/auth/') ||
         request.url.startsWith('/health')
       ) {
         reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
