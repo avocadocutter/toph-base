@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import replyFrom from '@fastify/reply-from';
 import { createApikeyResolver } from '../../hooks/resolve-project-from-apikey.js';
 import { AppError } from '../../lib/errors.js';
+import { generateApiKey } from '../auth/jwt.js';
 
 const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
   const resolveFromApikey = createApikeyResolver(fastify.db);
@@ -51,20 +52,49 @@ const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
       // Forward headers
       const headers = { ...request.headers };
 
-      // Handle Authorization header based on key type
-      // New format keys (sb_publishable_*, sb_secret_*) are NOT JWTs and cannot go in Authorization header
-      // Only legacy JWT-based keys or user JWTs should be forwarded
-      const apikey = headers.apikey as string | undefined;
-      const isNewFormat = apikey?.startsWith('sb_publishable_') || apikey?.startsWith('sb_secret_');
+      // Check if we need to generate a JWT for PostgREST
+      // We need to generate if:
+      // 1. No Authorization header exists, OR
+      // 2. Authorization header contains the API key (not a JWT)
+      const apikey = request.headers.apikey as string | undefined;
+      const authHeader = headers.authorization;
+      const needsJwt = !authHeader || (apikey && authHeader === `Bearer ${apikey}`);
 
-      if (!headers.authorization && apikey && !isNewFormat) {
-        // Legacy JWT-based key - forward as Authorization Bearer
-        headers.authorization = `Bearer ${apikey}`;
+      request.log.info({
+        hasAuthHeader: !!authHeader,
+        authHeaderPreview: authHeader?.substring(0, 100),
+        userRole: request.userRole,
+        needsJwt,
+      }, 'PostgREST proxy - checking authorization');
+
+      if (needsJwt) {
+        // Generate a JWT for PostgREST using the role from the API key
+        const role = request.userRole || 'anon';
+
+        request.log.info({
+          role,
+          projectRef: project.ref,
+          hasJwtSecret: !!project.jwtSecret,
+          jwtSecretLength: project.jwtSecret?.length
+        }, 'Generating JWT for PostgREST');
+
+        const jwt = await generateApiKey(
+          role as 'anon' | 'service_role',
+          project.ref,
+          project.jwtSecret,
+        );
+
+        request.log.info({
+          jwtLength: jwt.length,
+          jwtPreview: jwt.substring(0, 50) + '...',
+          jwtParts: jwt.split('.').length
+        }, 'Generated JWT');
+
+        headers.authorization = `Bearer ${jwt}`;
       }
 
-      // Note: For new format keys, the apikey header is kept but NOT forwarded in Authorization.
-      // PostgREST should be configured to read the apikey header directly.
-      // If a user JWT is present in Authorization, it's already there and will be forwarded.
+      // Remove the apikey header - PostgREST doesn't need it, it just needs the JWT
+      delete headers.apikey;
 
       // Set schema profile headers for PostgREST
       // PostgREST uses these headers to determine which schema to use

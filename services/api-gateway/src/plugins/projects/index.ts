@@ -92,6 +92,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       ref: p.ref,
       name: p.name,
       schemaName: p.schema_name,
+      jwtSecret: p.jwt_secret,
       status: p.status,
       publishableKey,
       secretKey,
@@ -341,6 +342,40 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       publishableKey,
       secretKey,
       message: 'API keys regenerated. Previous keys have been revoked.',
+    };
+  });
+
+  // Regenerate JWT secret (dangerous - invalidates all sessions and requires PostgREST restart)
+  fastify.post('/platform/projects/:ref/regenerate-jwt-secret', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
+    const { ref } = request.params as { ref: string };
+    const userId = request.platformUserId!;
+
+    // Verify ownership
+    const check = await fastify.db.query(
+      `SELECT p.id FROM toph_internal.projects p
+       JOIN toph_internal.project_members pm ON p.id = pm.project_id
+       WHERE p.ref = $1 AND pm.user_id = $2 AND pm.role = 'owner' AND p.status != 'deleted'`,
+      [ref, userId],
+    );
+    if (check.rows.length === 0) {
+      throw new NotFoundError('Project not found or insufficient permissions');
+    }
+
+    const newJwtSecret = generateProjectJwtSecret();
+
+    const result = await fastify.db.query(
+      `UPDATE toph_internal.projects
+       SET jwt_secret = $1, updated_at = now()
+       WHERE ref = $2
+       RETURNING jwt_secret`,
+      [newJwtSecret, ref],
+    );
+
+    invalidateProjectCache(ref);
+
+    return {
+      jwtSecret: result.rows[0].jwt_secret,
+      message: 'JWT secret regenerated. All user sessions are now invalid. You must restart PostgREST with the new secret.',
     };
   });
 };
