@@ -2,11 +2,19 @@ import { useQuery } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary, PaginatedResponse, UserRecord } from '@/types';
-import { Database, Users, Shield, Activity } from 'lucide-react';
+import { Database, Users, Shield, Activity, Copy, Check } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
+import { useState } from 'react';
 
 export function OverviewPage() {
   const currentProject = useProjectStore((s) => s.currentProject);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   const tables = useQuery({
     queryKey: ['admin-tables', currentProject?.ref],
@@ -69,6 +77,43 @@ export function OverviewPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Project Info */}
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Project Information</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Project Reference</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
+                {currentProject.ref}
+              </code>
+              <button
+                onClick={() => copyToClipboard(currentProject.ref, 'ref')}
+                className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Copy project ref"
+              >
+                {copiedField === 'ref' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Database Schema</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
+                {currentProject.schemaName}
+              </code>
+              <button
+                onClick={() => copyToClipboard(currentProject.schemaName, 'schema')}
+                className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Copy schema name"
+              >
+                {copiedField === 'schema' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {health.data?.database?.version && (

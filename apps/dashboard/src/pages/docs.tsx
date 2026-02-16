@@ -110,6 +110,17 @@ export function DocsPage() {
             <strong>secret key</strong> for server-side requests with elevated privileges.
           </p>
 
+          <div className="mb-4 rounded-md border border-blue-500/50 bg-blue-500/10 p-3 text-sm">
+            <p className="mb-2 font-medium text-blue-600 dark:text-blue-400">
+              Project Identification
+            </p>
+            <p className="text-xs text-blue-600/80 dark:text-blue-400/80">
+              Your project is identified by the <strong>API key</strong>, not the subdomain in the URL.
+              The subdomain format is for Supabase compatibility, but project resolution happens via
+              the API key lookup. You can use any subdomain as long as the API key is correct.
+            </p>
+          </div>
+
           <div className="mb-4">
             <h3 className="mb-2 text-sm font-medium">
               Publishable Key (Client-side)
@@ -140,7 +151,10 @@ export function DocsPage() {
             <h3 className="mb-2 text-lg font-medium">Read (GET)</h3>
             <p className="mb-3 text-sm text-muted-foreground">Fetch all rows from a table:</p>
             <CodeBlock
-              code={`curl '${apiUrl}/users' \\
+              code={`# First, create a table in the SQL Editor
+# CREATE TABLE todos (id SERIAL PRIMARY KEY, task TEXT, done BOOLEAN DEFAULT false);
+
+curl '${apiUrl}/todos' \\
   -H 'apikey: ${publishableKey}'`}
               id="get-all"
             />
@@ -153,7 +167,7 @@ export function DocsPage() {
               Use query parameters to filter results:
             </p>
             <CodeBlock
-              code={`curl '${apiUrl}/users?email=eq.user@example.com' \\
+              code={`curl '${apiUrl}/todos?done=eq.false' \\
   -H 'apikey: ${publishableKey}'`}
               id="get-filter"
             />
@@ -164,12 +178,15 @@ export function DocsPage() {
             <h3 className="mb-2 text-lg font-medium">Create (POST)</h3>
             <p className="mb-3 text-sm text-muted-foreground">Insert a new row:</p>
             <CodeBlock
-              code={`curl -X POST '${apiUrl}/users' \\
-  -H 'apikey: ${publishableKey}' \\
+              code={`curl -X POST '${apiUrl}/todos' \\
+  -H 'apikey: ${secretKey}' \\
   -H 'Content-Type: application/json' \\
-  -d '{"email": "newuser@example.com", "name": "New User"}'`}
+  -d '{"task": "Build something awesome", "done": false}'`}
               id="post"
             />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Note: Using secret key for write operations. Publishable key can be used if RLS policies allow.
+            </p>
           </div>
 
           {/* Update */}
@@ -177,10 +194,10 @@ export function DocsPage() {
             <h3 className="mb-2 text-lg font-medium">Update (PATCH)</h3>
             <p className="mb-3 text-sm text-muted-foreground">Update rows matching a filter:</p>
             <CodeBlock
-              code={`curl -X PATCH '${apiUrl}/users?id=eq.123' \\
-  -H 'apikey: ${publishableKey}' \\
+              code={`curl -X PATCH '${apiUrl}/todos?id=eq.1' \\
+  -H 'apikey: ${secretKey}' \\
   -H 'Content-Type: application/json' \\
-  -d '{"name": "Updated Name"}'`}
+  -d '{"done": true}'`}
               id="patch"
             />
           </div>
@@ -190,8 +207,8 @@ export function DocsPage() {
             <h3 className="mb-2 text-lg font-medium">Delete (DELETE)</h3>
             <p className="mb-3 text-sm text-muted-foreground">Delete rows matching a filter:</p>
             <CodeBlock
-              code={`curl -X DELETE '${apiUrl}/users?id=eq.123' \\
-  -H 'apikey: ${publishableKey}'`}
+              code={`curl -X DELETE '${apiUrl}/todos?id=eq.1' \\
+  -H 'apikey: ${secretKey}'`}
               id="delete"
             />
           </div>
@@ -251,7 +268,7 @@ export function DocsPage() {
             <div className="mt-3">
               <CodeBlock
                 code={`# Multiple filters (AND logic)
-curl '${apiUrl}/users?age=gte.18&status=eq.active' \\
+curl '${apiUrl}/todos?done=eq.false&created_at=gte.2025-01-01' \\
   -H 'apikey: ${publishableKey}'`}
                 id="filter-multi"
               />
@@ -265,11 +282,11 @@ curl '${apiUrl}/users?age=gte.18&status=eq.active' \\
             </p>
             <CodeBlock
               code={`# Ascending order
-curl '${apiUrl}/users?order=created_at.asc' \\
+curl '${apiUrl}/todos?order=id.asc' \\
   -H 'apikey: ${publishableKey}'
 
 # Descending order
-curl '${apiUrl}/users?order=created_at.desc' \\
+curl '${apiUrl}/todos?order=id.desc' \\
   -H 'apikey: ${publishableKey}'`}
               id="order"
             />
@@ -282,7 +299,7 @@ curl '${apiUrl}/users?order=created_at.desc' \\
               <code className="rounded bg-muted px-1">offset</code> for pagination:
             </p>
             <CodeBlock
-              code={`curl '${apiUrl}/users?limit=10&offset=20' \\
+              code={`curl '${apiUrl}/todos?limit=10&offset=20' \\
   -H 'apikey: ${publishableKey}'`}
               id="pagination"
             />
@@ -295,7 +312,7 @@ curl '${apiUrl}/users?order=created_at.desc' \\
               parameter:
             </p>
             <CodeBlock
-              code={`curl '${apiUrl}/users?select=id,email,name' \\
+              code={`curl '${apiUrl}/todos?select=id,task,done' \\
   -H 'apikey: ${publishableKey}'`}
               id="select"
             />
@@ -311,16 +328,14 @@ curl '${apiUrl}/users?order=created_at.desc' \\
           <CodeBlock
             code={`[
   {
-    "id": "123",
-    "email": "user@example.com",
-    "name": "John Doe",
-    "created_at": "2025-01-15T10:30:00Z"
+    "id": 1,
+    "task": "Build something awesome",
+    "done": false
   },
   {
-    "id": "456",
-    "email": "another@example.com",
-    "name": "Jane Smith",
-    "created_at": "2025-01-16T14:20:00Z"
+    "id": 2,
+    "task": "Write documentation",
+    "done": true
   }
 ]`}
             id="response"

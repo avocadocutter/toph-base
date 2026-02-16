@@ -206,9 +206,41 @@ export function SettingsPage() {
             )}
           </div>
 
-          <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            <strong>Project ref:</strong> {currentProject.ref} &nbsp;·&nbsp;
-            <strong>API URL:</strong> <code>/rest/v1/*</code> (with apikey header)
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Project Reference:</span>
+              <code className="rounded bg-muted px-2 py-1 text-xs font-mono">
+                {currentProject.ref}
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(currentProject.ref);
+                  setCopiedId('project-ref');
+                  setTimeout(() => setCopiedId(null), 2000);
+                }}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Copy project ref"
+              >
+                {copiedId === 'project-ref' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Database Schema:</span>
+              <code className="rounded bg-muted px-2 py-1 text-xs font-mono">
+                {currentProject.schemaName}
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(currentProject.schemaName);
+                  setCopiedId('schema-name');
+                  setTimeout(() => setCopiedId(null), 2000);
+                }}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Copy schema name"
+              >
+                {copiedId === 'schema-name' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+              </button>
+            </div>
           </div>
         </section>
       )}

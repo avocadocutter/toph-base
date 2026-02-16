@@ -7,7 +7,6 @@ const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
   const resolveFromApikey = createApikeyResolver(fastify.db);
 
   await fastify.register(replyFrom, {
-    base: 'http://127.0.0.1:9000', // Placeholder, will be overridden per-request
     undici: {
       connections: 64,
       pipelining: 1,
@@ -66,6 +65,11 @@ const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
       // Note: For new format keys, the apikey header is kept but NOT forwarded in Authorization.
       // PostgREST should be configured to read the apikey header directly.
       // If a user JWT is present in Authorization, it's already there and will be forwarded.
+
+      // Set schema profile headers for PostgREST
+      // PostgREST uses these headers to determine which schema to use
+      headers['accept-profile'] = project.schemaName;
+      headers['content-profile'] = project.schemaName;
 
       // Remove host header to avoid conflicts
       delete headers.host;
