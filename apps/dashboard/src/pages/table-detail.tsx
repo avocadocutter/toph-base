@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Shield, Table, Rows3, Key } from 'lucide-react';
+import { Shield, Table, Rows3, Key, RefreshCw, ChevronRight } from 'lucide-react';
 
 type Tab = 'data' | 'structure' | 'rls';
 
 export function TableDetailPage() {
   const { table = '' } = useParams();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('data');
   const queryClient = useQueryClient();
   const currentProject = useProjectStore((s) => s.currentProject);
@@ -90,7 +91,16 @@ export function TableDetailPage() {
       header: 'Type',
       cell: ({ row }) => <Badge variant={row.original.permissive ? 'default' : 'destructive'}>{row.original.permissive ? 'PERMISSIVE' : 'RESTRICTIVE'}</Badge>,
     },
-    { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => row.original.roles.join(', ') },
+    {
+      accessorKey: 'roles',
+      header: 'Roles',
+      cell: ({ row }) => {
+        const roles = row.original.roles;
+        if (Array.isArray(roles)) return roles.join(', ');
+        if (typeof roles === 'string') return roles;
+        return '-';
+      }
+    },
     { accessorKey: 'using', header: 'USING', cell: ({ getValue }) => <code className="text-xs">{(getValue() as string) ?? '-'}</code> },
     { accessorKey: 'withCheck', header: 'WITH CHECK', cell: ({ getValue }) => <code className="text-xs">{(getValue() as string) ?? '-'}</code> },
   ];
@@ -103,31 +113,47 @@ export function TableDetailPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold">{table}</h1>
-          <p className="text-xs text-muted-foreground">
-            {info?.rowCount ?? 0} rows / {info?.columns.length ?? 0} columns
-          </p>
-        </div>
-        {activeTab === 'rls' && info && (
-          <Button
-            size="sm"
-            variant={info.rlsEnabled ? 'destructive' : 'default'}
-            onClick={() => toggleRls.mutate(!info.rlsEnabled)}
+      {/* Breadcrumb + Header */}
+      <div className="space-y-2">
+        <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <button
+            onClick={() => navigate('/tables')}
+            className="hover:text-foreground transition-colors"
           >
-            <Shield size={14} />
-            {info.rlsEnabled ? 'Disable RLS' : 'Enable RLS'}
-          </Button>
-        )}
+            Tables
+          </button>
+          <ChevronRight size={14} />
+          <h1 className="text-lg font-bold text-foreground">{table}</h1>
+        </nav>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <Rows3 size={14} />
+            {info?.rowCount ?? 0} rows
+          </span>
+          <span className="text-border">&middot;</span>
+          <span className="flex items-center gap-1.5">
+            <Table size={14} />
+            {info?.columns.length ?? 0} columns
+          </span>
+          {info?.rlsEnabled && (
+            <>
+              <span className="text-border">&middot;</span>
+              <Badge variant="outline" className="gap-1">
+                <Shield size={12} />
+                RLS
+              </Badge>
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm transition-colors ${
+            className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -139,12 +165,26 @@ export function TableDetailPage() {
         ))}
       </div>
 
+      {/* Tab content */}
       {activeTab === 'data' && (
-        <DataTable
-          data={tableData.data?.data ?? []}
-          columns={dataColumns}
-          loading={tableData.isLoading}
-        />
+        <div className="space-y-3">
+          <div className="flex items-center justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => tableData.refetch()}
+              disabled={tableData.isRefetching}
+            >
+              <RefreshCw size={14} className={tableData.isRefetching ? 'animate-spin' : ''} />
+              Refresh
+            </Button>
+          </div>
+          <DataTable
+            data={tableData.data?.data ?? []}
+            columns={dataColumns}
+            loading={tableData.isLoading}
+          />
+        </div>
       )}
 
       {activeTab === 'structure' && (
@@ -158,10 +198,26 @@ export function TableDetailPage() {
       {activeTab === 'rls' && (
         <div className="space-y-4">
           {info && (
-            <Badge variant={info.rlsEnabled ? 'success' : 'secondary'}>
-              RLS {info.rlsEnabled ? 'Enabled' : 'Disabled'}
-              {info.rlsForced && ' (Forced)'}
-            </Badge>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Shield size={14} className={info.rlsEnabled ? 'text-success' : 'text-muted-foreground'} />
+                <span>
+                  Row Level Security is{' '}
+                  <span className={info.rlsEnabled ? 'text-success font-medium' : 'text-muted-foreground font-medium'}>
+                    {info.rlsEnabled ? 'enabled' : 'disabled'}
+                  </span>
+                  {info.rlsForced && ' (forced)'}
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant={info.rlsEnabled ? 'destructive' : 'default'}
+                onClick={() => toggleRls.mutate(!info.rlsEnabled)}
+              >
+                <Shield size={14} />
+                {info.rlsEnabled ? 'Disable RLS' : 'Enable RLS'}
+              </Button>
+            </div>
           )}
           <DataTable
             data={policies.data ?? []}
