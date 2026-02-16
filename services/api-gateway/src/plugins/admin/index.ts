@@ -5,9 +5,10 @@ import { introspectSchema, invalidateCache } from '../introspection/inspector.js
 import { quoteIdentifier, quoteQualifiedIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
-import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError, NotFoundError, ConflictError } from '../../lib/errors.js';
 import { readFile, writeFile, mkdir, readdir, access, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import archiver from 'archiver';
 
 const createTableSchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid table name'),
@@ -849,6 +850,50 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     );
 
     return { message: 'Migration deleted successfully' };
+  });
+
+  // Download all migrations as a zip file
+  fastify.get('/platform/projects/:projectRef/admin/migrations/download', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const project = request.project!;
+    const projectMigrationsDir = join(process.cwd(), 'migrations', 'projects', project.ref);
+
+    // Ensure project migrations directory exists
+    await mkdir(projectMigrationsDir, { recursive: true });
+
+    // Read migration files from disk
+    const files = (await readdir(projectMigrationsDir))
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+
+    if (files.length === 0) {
+      throw new NotFoundError('No migrations found for this project');
+    }
+
+    // Set response headers for zip download
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="${project.ref}-migrations.zip"`);
+
+    // Create zip archive
+    const archive = archiver('zip', {
+      zlib: { level: 9 } // Maximum compression
+    });
+
+    // Pipe archive to response
+    archive.pipe(reply.raw);
+
+    // Add each migration file to the archive
+    for (const file of files) {
+      const filePath = join(projectMigrationsDir, file);
+      const content = await readFile(filePath, 'utf-8');
+      archive.append(content, { name: file });
+    }
+
+    // Finalize the archive
+    await archive.finalize();
+
+    return reply;
   });
 };
 

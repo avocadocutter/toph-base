@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ColumnDef } from '@tanstack/react-table';
-import { Plus, Play, Trash2, Eye } from 'lucide-react';
+import { Plus, Play, Trash2, Eye, Download } from 'lucide-react';
 import { DataTable } from '../components/data-table/data-table';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Checkbox } from '../components/ui/checkbox';
 import { api, projectAdminPath } from '../lib/api-client';
 import { useProjectStore } from '../stores/project-store';
+import { useAuthStore } from '../stores/auth-store';
 import { toast } from 'sonner';
 import type { Migration, MigrationListResponse, ApplyMigrationsResponse } from '../types';
 
@@ -61,6 +62,54 @@ export function MigrationsPage() {
       toast.error(error.message);
     },
   });
+
+  // Download all migrations
+  const handleDownloadMigrations = async () => {
+    if (!currentProject) return;
+
+    try {
+      // Get the auth token from the store
+      const token = useAuthStore.getState().accessToken;
+      const url = `/platform/projects/${currentProject.ref}/admin/migrations/download`;
+
+      // Fetch the zip file
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          useAuthStore.getState().logout();
+          window.location.href = '/login';
+          throw new Error('Unauthorized');
+        }
+        throw new Error('Failed to download migrations');
+      }
+
+      // Create a blob from the response
+      const blob = await response.blob();
+
+      // Create a temporary URL for the blob
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      // Create a temporary anchor element and trigger download
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `${currentProject.ref}-migrations.zip`;
+      document.body.appendChild(a);
+      a.click();
+
+      // Clean up
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+
+      toast.success('Migrations downloaded successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to download migrations');
+    }
+  };
 
   const toggleMigration = (name: string) => {
     const newSet = new Set(selectedMigrations);
@@ -169,6 +218,14 @@ export function MigrationsPage() {
           >
             <Play size={14} />
             Apply Selected ({selectedMigrations.size})
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadMigrations}
+            disabled={!data?.data.length}
+          >
+            <Download size={14} />
+            Download All
           </Button>
           <Button onClick={() => navigate('/migrations/new')}>
             <Plus size={14} />
