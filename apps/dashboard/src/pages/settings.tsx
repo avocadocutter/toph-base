@@ -110,6 +110,7 @@ export function SettingsPage() {
 
   const [postgrestUrl, setPostgrestUrl] = useState('');
   const [isEditingPostgrest, setIsEditingPostgrest] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const updatePostgrestUrl = useMutation({
     mutationFn: (url: string | null) =>

@@ -65,10 +65,64 @@ async function main() {
 
   // Register global plugins
   await fastify.register(cors, {
-    origin: config.cors.allowedOrigins.split(',').map(s => s.trim()),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      fastify.log.debug({ origin }, 'CORS origin check');
+
+      const allowedOrigins = config.cors.allowedOrigins.split(',').map(s => s.trim());
+
+      // Check if origin is in the allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      // Allow subdomain-based project URLs and all localhost origins in development
+      try {
+        const originUrl = new URL(origin);
+
+        // In development, allow all localhost origins regardless of port
+        if (originUrl.hostname === 'localhost' || originUrl.hostname.endsWith('.localhost')) {
+          callback(null, true);
+          return;
+        }
+
+        // In production, be more restrictive with the host check
+        const serverHost = config.server.host === '0.0.0.0' ? 'localhost' : config.server.host;
+        if (
+          originUrl.hostname === serverHost &&
+          originUrl.port === config.server.port.toString()
+        ) {
+          callback(null, true);
+          return;
+        }
+      } catch (err) {
+        fastify.log.warn({ origin, err }, 'Invalid origin URL');
+        callback(new Error('Not allowed by CORS'), false);
+        return;
+      }
+
+      // Reject all other origins
+      fastify.log.warn({ origin }, 'Origin not allowed by CORS');
+      callback(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Prefer', 'apikey', 'X-Client-Info'],
-    exposedHeaders: ['Content-Range', 'X-Total-Count'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Prefer',
+      'apikey',
+      'X-Client-Info',
+      'Accept-Profile',
+      'Content-Profile',
+      'Range',
+    ],
+    exposedHeaders: ['Content-Range', 'X-Total-Count', 'Content-Profile'],
   });
 
   await fastify.register(helmet, {
