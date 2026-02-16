@@ -17,7 +17,6 @@ import adminPlugin from './plugins/admin/index.js';
 import projectsPlugin from './plugins/projects/index.js';
 import apiKeysPlugin from './plugins/api-keys/index.js';
 import postgrestProxyPlugin from './plugins/postgrest-proxy/index.js';
-import compatAuthPlugin from './plugins/compat-auth/index.js';
 import { PostgrestManager } from './lib/postgrest-manager.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -118,6 +117,7 @@ async function main() {
       'Prefer',
       'apikey',
       'X-Client-Info',
+      'x-supabase-api-version',
       'Accept-Profile',
       'Content-Profile',
       'Range',
@@ -171,7 +171,6 @@ async function main() {
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
   await fastify.register(postgrestProxyPlugin);
-  await fastify.register(compatAuthPlugin);
 
   // Serve dashboard static files if they exist
   const dashboardPath = path.resolve(__dirname, '../../apps/dashboard/dist');

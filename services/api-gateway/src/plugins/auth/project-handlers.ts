@@ -69,22 +69,20 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
 
     await client.query('COMMIT');
 
-    reply.status(201).send({
-      tokens: {
-        accessToken,
-        refreshToken,
-        expiresIn: config.jwt.accessTokenExpiry,
-        tokenType: 'Bearer',
-      },
+    // Supabase-compatible response format
+    reply.status(200).send({
+      access_token: accessToken,
+      token_type: 'bearer',
+      expires_in: config.jwt.accessTokenExpiry,
+      expires_at: Math.floor(Date.now() / 1000) + config.jwt.accessTokenExpiry,
+      refresh_token: refreshToken,
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
-        emailConfirmed: user.email_confirmed,
-        isDisabled: user.is_disabled,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-        lastSignInAt: null,
+        email_confirmed_at: user.email_confirmed ? user.created_at : null,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
     });
   } catch (error) {
@@ -148,22 +146,21 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
 
     await client.query('COMMIT');
 
+    // Supabase-compatible response format
     reply.send({
-      tokens: {
-        accessToken,
-        refreshToken,
-        expiresIn: config.jwt.accessTokenExpiry,
-        tokenType: 'Bearer',
-      },
+      access_token: accessToken,
+      token_type: 'bearer',
+      expires_in: config.jwt.accessTokenExpiry,
+      expires_at: Math.floor(Date.now() / 1000) + config.jwt.accessTokenExpiry,
+      refresh_token: refreshToken,
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
-        emailConfirmed: user.email_confirmed,
-        isDisabled: user.is_disabled,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-        lastSignInAt: user.last_sign_in_at,
+        email_confirmed_at: user.email_confirmed ? user.created_at : null,
+        last_sign_in_at: user.last_sign_in_at,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
     });
   } catch (error) {
@@ -175,8 +172,8 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
 }
 
 export async function projectRefreshHandler(request: FastifyRequest, reply: FastifyReply) {
-  const body = request.body as { refreshToken: string };
-  if (!body?.refreshToken) {
+  const body = request.body as { refresh_token: string };
+  if (!body?.refresh_token) {
     throw new BadRequestError('Refresh token is required');
   }
 
@@ -184,7 +181,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
   const config = request.server.config;
   const project = request.project!;
   const schema = project.schemaName;
-  const tokenHash = hashRefreshToken(body.refreshToken);
+  const tokenHash = hashRefreshToken(body.refresh_token);
 
   const client = await db.connect();
   try {
@@ -192,7 +189,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
     await client.query(`SET LOCAL ROLE service_role`);
 
     const sessionResult = await client.query(
-      `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled
+      `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled, u.email_confirmed, u.created_at, u.updated_at, u.last_sign_in_at
        FROM ${sessionsTable(schema)} s
        JOIN ${usersTable(schema)} u ON s.user_id = u.id
        WHERE s.refresh_token_hash = $1 AND s.expires_at > now()`,
@@ -224,12 +221,21 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
 
     await client.query('COMMIT');
 
+    // Supabase-compatible response format
     reply.send({
-      tokens: {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        expiresIn: config.jwt.accessTokenExpiry,
-        tokenType: 'Bearer',
+      access_token: newAccessToken,
+      token_type: 'bearer',
+      expires_in: config.jwt.accessTokenExpiry,
+      expires_at: Math.floor(Date.now() / 1000) + config.jwt.accessTokenExpiry,
+      refresh_token: newRefreshToken,
+      user: {
+        id: session.user_id,
+        email: session.email,
+        role: session.role,
+        email_confirmed_at: session.email_confirmed ? session.created_at : null,
+        last_sign_in_at: session.last_sign_in_at,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
       },
     });
   } catch (error) {
@@ -241,18 +247,18 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
 }
 
 export async function projectSignoutHandler(request: FastifyRequest, reply: FastifyReply) {
-  const body = request.body as { refreshToken?: string };
+  // Supabase sends refresh token in Authorization header or uses the access token
+  // We'll delete all sessions for the authenticated user
   const db = request.server.db;
   const project = request.project!;
   const schema = project.schemaName;
 
-  if (body?.refreshToken) {
-    const tokenHash = hashRefreshToken(body.refreshToken);
+  if (request.userId) {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
       await client.query(`SET LOCAL ROLE service_role`);
-      await client.query(`DELETE FROM ${sessionsTable(schema)} WHERE refresh_token_hash = $1`, [tokenHash]);
+      await client.query(`DELETE FROM ${sessionsTable(schema)} WHERE user_id = $1`, [request.userId]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -292,16 +298,18 @@ export async function projectMeHandler(request: FastifyRequest, reply: FastifyRe
     }
 
     const user = result.rows[0];
+
+    // Supabase-compatible response format
     reply.send({
       id: user.id,
       email: user.email,
       role: user.role,
-      emailConfirmed: user.email_confirmed,
-      isDisabled: user.is_disabled,
-      metadata: user.metadata,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
-      lastSignInAt: user.last_sign_in_at,
+      email_confirmed_at: user.email_confirmed ? user.created_at : null,
+      user_metadata: user.metadata || {},
+      app_metadata: { provider: 'email' },
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      last_sign_in_at: user.last_sign_in_at,
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

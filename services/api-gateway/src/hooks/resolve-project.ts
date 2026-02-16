@@ -45,7 +45,33 @@ export async function resolveProjectByRef(db: DbPool, ref: string): Promise<Reso
 
 export function createProjectResolver(db: DbPool) {
   return async function resolveProject(request: FastifyRequest, _reply: FastifyReply) {
-    const { projectRef } = request.params as { projectRef: string };
+    // Try to get project ref from multiple sources:
+    // 1. Route params (e.g., /project/:projectRef/...)
+    // 2. Subdomain (e.g., 3aca04e1.localhost:8000)
+    // 3. Host header for subdomain routing
+
+    let projectRef: string | undefined;
+
+    // First try route params
+    const params = request.params as { projectRef?: string };
+    projectRef = params.projectRef;
+
+    // If not in params, try extracting from subdomain
+    if (!projectRef) {
+      const host = request.headers.host;
+      if (host) {
+        // Extract subdomain from host (e.g., "3aca04e1.localhost:8000" -> "3aca04e1")
+        const parts = host.split('.');
+        if (parts.length >= 2) {
+          // Check if first part looks like a project ref (not "www", "api", etc.)
+          const subdomain = parts[0].split(':')[0]; // Remove port if present
+          if (subdomain && subdomain !== 'www' && subdomain !== 'api' && subdomain !== 'localhost') {
+            projectRef = subdomain;
+          }
+        }
+      }
+    }
+
     if (!projectRef) {
       throw new NotFoundError('Project reference is required');
     }

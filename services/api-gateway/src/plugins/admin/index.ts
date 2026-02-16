@@ -435,13 +435,77 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // Create a project end-user
+  fastify.post('/platform/projects/:projectRef/admin/users', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const project = request.project!;
+    const body = request.body as { email: string; password: string; emailConfirmed?: boolean };
+
+    if (!body.email || !body.password) {
+      throw new BadRequestError('Email and password are required');
+    }
+
+    if (body.password.length < 8) {
+      throw new BadRequestError('Password must be at least 8 characters');
+    }
+
+    const usersTable = quoteQualifiedIdentifier(project.schemaName, 'users');
+    const client = await fastify.db.connect();
+
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE service_role');
+
+      // Check if user already exists
+      const existing = await client.query(
+        `SELECT id FROM ${usersTable} WHERE email = $1`,
+        [body.email]
+      );
+
+      if (existing.rows.length > 0) {
+        throw new ConflictError('User with this email already exists');
+      }
+
+      // Hash password and create user
+      const { hashPassword } = await import('../auth/password.js');
+      const passwordHash = await hashPassword(body.password);
+
+      const result = await client.query(
+        `INSERT INTO ${usersTable} (email, password_hash, role, email_confirmed)
+         VALUES ($1, $2, 'authenticated', $3)
+         RETURNING id, email, role, email_confirmed, is_disabled, created_at, updated_at`,
+        [body.email, passwordHash, body.emailConfirmed ?? false]
+      );
+
+      await client.query('COMMIT');
+
+      const user = result.rows[0];
+      reply.status(201).send({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        emailConfirmed: user.email_confirmed,
+        isDisabled: user.is_disabled,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at,
+        lastSignInAt: null,
+      });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
   // Update a project end-user
   fastify.patch('/platform/projects/:projectRef/admin/users/:id', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { id } = request.params as { id: string; projectRef: string };
     const project = request.project!;
-    const body = request.body as { role?: string; isDisabled?: boolean };
+    const body = request.body as { role?: string; isDisabled?: boolean; password?: string };
 
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -455,6 +519,16 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     if (body.isDisabled !== undefined) {
       updates.push(`is_disabled = $${paramIndex++}`);
       values.push(body.isDisabled);
+    }
+
+    if (body.password !== undefined) {
+      if (body.password.length < 8) {
+        throw new BadRequestError('Password must be at least 8 characters');
+      }
+      const { hashPassword } = await import('../auth/password.js');
+      const passwordHash = await hashPassword(body.password);
+      updates.push(`password_hash = $${paramIndex++}`);
+      values.push(passwordHash);
     }
 
     if (updates.length === 0) throw new BadRequestError('No fields to update');
@@ -702,11 +776,15 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
         await client.query(sql);
         const duration = Date.now() - startTime;
 
-        // Update status to applied
+        // Reset role to access toph_internal (service_role doesn't have permission)
+        await client.query('RESET ROLE');
+
+        // Update status to applied (upsert to ensure row exists)
         await client.query(
-          `UPDATE toph_internal.migrations
-           SET status = 'applied', applied_at = now(), applied_by = $1, error_message = NULL
-           WHERE name = $2 AND project_id = $3`,
+          `INSERT INTO toph_internal.migrations (name, project_id, status, applied_at, applied_by)
+           VALUES ($2, $3, 'applied', now(), $1)
+           ON CONFLICT (name, project_id)
+           DO UPDATE SET status = 'applied', applied_at = now(), applied_by = $1, error_message = NULL`,
           [request.platformPayload?.sub, name, project.id]
         );
 
