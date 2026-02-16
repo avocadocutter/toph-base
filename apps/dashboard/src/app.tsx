@@ -8,6 +8,8 @@ import { ProjectsPage } from './pages/projects';
 import { TablesPage } from './pages/tables';
 import { TableDetailPage } from './pages/table-detail';
 import { SqlEditorPage } from './pages/sql-editor';
+import { MigrationsPage } from './pages/migrations';
+import { MigrationNewPage } from './pages/migration-new';
 import { UsersPage } from './pages/users';
 import { PoliciesPage } from './pages/policies';
 import { SettingsPage } from './pages/settings';
@@ -58,6 +60,8 @@ export function App() {
             <Route path="tables" element={<TablesPage />} />
             <Route path="tables/:table" element={<TableDetailPage />} />
             <Route path="sql" element={<SqlEditorPage />} />
+            <Route path="migrations" element={<MigrationsPage />} />
+            <Route path="migrations/new" element={<MigrationNewPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="policies" element={<PoliciesPage />} />
             <Route path="settings" element={<SettingsPage />} />

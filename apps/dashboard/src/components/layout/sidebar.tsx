@@ -14,12 +14,14 @@ import {
   FolderOpen,
   ChevronDown,
   BookOpen,
+  GitBranch,
 } from 'lucide-react';
 
 const projectItems = [
   { to: '/', icon: LayoutDashboard, label: 'Overview', end: true },
   { to: '/tables', icon: Database, label: 'Tables' },
   { to: '/sql', icon: Terminal, label: 'SQL Editor' },
+  { to: '/migrations', icon: GitBranch, label: 'Migrations' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/policies', icon: Shield, label: 'Policies' },
 ];

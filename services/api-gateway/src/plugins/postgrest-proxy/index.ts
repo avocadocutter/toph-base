@@ -86,7 +86,7 @@ const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
 
         request.log.info({
           jwtLength: jwt.length,
-          jwtPreview: jwt.substring(0, 50) + '...',
+          jwtPreview: jwt,
           jwtParts: jwt.split('.').length
         }, 'Generated JWT');
 

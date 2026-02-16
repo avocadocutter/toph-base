@@ -6,6 +6,8 @@ import { quoteIdentifier, quoteQualifiedIdentifier, isValidIdentifier } from '..
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { readFile, writeFile, mkdir, readdir, access, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const createTableSchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid table name'),
@@ -21,6 +23,16 @@ const createTableSchema = z.object({
 
 const sqlQuerySchema = z.object({
   query: z.string().min(1, 'Query is required').max(100000),
+});
+
+const createMigrationSchema = z.object({
+  name: z.string().regex(/^[a-zA-Z0-9_.-]+\.sql$/, 'Invalid filename'),
+  content: z.string().min(1).max(1000000),
+  description: z.string().optional(),
+});
+
+const applyMigrationsSchema = z.object({
+  names: z.array(z.string()).min(1, 'At least one migration required'),
 });
 
 const adminPlugin: FastifyPluginAsync = async (fastify) => {
@@ -507,6 +519,258 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     invalidateCache(project.schemaName);
     const tables = await introspectSchema(fastify.db, project.schemaName);
     return { message: 'Schema cache refreshed', tableCount: tables.size };
+  });
+
+  // ============================================================
+  // Project migrations
+  // ============================================================
+
+  // List migrations
+  fastify.get('/platform/projects/:projectRef/admin/migrations', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const project = request.project!;
+    const projectMigrationsDir = join(process.cwd(), 'migrations', 'projects', project.ref);
+
+    // Ensure project migrations directory exists
+    await mkdir(projectMigrationsDir, { recursive: true });
+
+    // Read migration files from disk
+    const files = (await readdir(projectMigrationsDir))
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+
+    // Get applied status from database
+    const { rows: dbMigrations } = await fastify.db.query<{
+      name: string;
+      applied_at: Date | null;
+      status: string;
+      error_message: string | null;
+    }>(
+      `SELECT name, applied_at, status, error_message
+       FROM toph_internal.migrations
+       WHERE project_id = $1
+       ORDER BY name`,
+      [project.id]
+    );
+
+    const statusMap = new Map(dbMigrations.map(m => [m.name, m]));
+
+    // Merge file list with database status
+    const migrations = files.map(name => {
+      const dbRecord = statusMap.get(name);
+      return {
+        name,
+        status: dbRecord?.status || 'pending',
+        appliedAt: dbRecord?.applied_at || null,
+        errorMessage: dbRecord?.error_message || null,
+      };
+    });
+
+    const pendingCount = migrations.filter(m => m.status === 'pending').length;
+
+    return { data: migrations, pendingCount };
+  });
+
+  // Get migration content
+  fastify.get('/platform/projects/:projectRef/admin/migrations/:name', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const { name } = request.params as { name: string };
+    const project = request.project!;
+
+    // Security: validate filename (prevent path traversal)
+    if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(name)) {
+      throw new BadRequestError('Invalid migration filename');
+    }
+
+    const filePath = join(process.cwd(), 'migrations', 'projects', project.ref, name);
+
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const { rows } = await fastify.db.query(
+        'SELECT status, applied_at, error_message FROM toph_internal.migrations WHERE name = $1 AND project_id = $2',
+        [name, project.id]
+      );
+
+      return {
+        name,
+        content,
+        status: rows[0]?.status || 'pending',
+        appliedAt: rows[0]?.applied_at || null,
+        errorMessage: rows[0]?.error_message || null,
+      };
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        throw new NotFoundError('Migration file not found');
+      }
+      throw error;
+    }
+  });
+
+  // Create migration
+  fastify.post('/platform/projects/:projectRef/admin/migrations', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const body = createMigrationSchema.parse(request.body);
+    const project = request.project!;
+
+    const projectMigrationsDir = join(process.cwd(), 'migrations', 'projects', project.ref);
+    await mkdir(projectMigrationsDir, { recursive: true });
+
+    const filePath = join(projectMigrationsDir, body.name);
+
+    // Check if file already exists
+    try {
+      await access(filePath);
+      throw new BadRequestError('Migration file already exists');
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+
+    // Add comment header with description if provided
+    const content = body.description
+      ? `-- ${body.description}\n\n${body.content}`
+      : body.content;
+
+    // Write file to disk
+    await writeFile(filePath, content, 'utf-8');
+
+    // Create pending record in database
+    await fastify.db.query(
+      `INSERT INTO toph_internal.migrations (name, project_id, status)
+       VALUES ($1, $2, 'pending')`,
+      [body.name, project.id]
+    );
+
+    return {
+      message: 'Migration created successfully',
+      migration: { name: body.name, status: 'pending' }
+    };
+  });
+
+  // Apply selected migrations
+  fastify.post('/platform/projects/:projectRef/admin/migrations/apply', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const body = applyMigrationsSchema.parse(request.body);
+    const project = request.project!;
+
+    const applied: string[] = [];
+    const failed: Array<{ name: string; error: string }> = [];
+
+    // Sort migrations to apply in order
+    const sortedNames = body.names.sort();
+
+    for (const name of sortedNames) {
+      // Validate filename
+      if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(name)) {
+        failed.push({ name, error: 'Invalid filename' });
+        continue;
+      }
+
+      // Check if already applied
+      const { rows: existing } = await fastify.db.query(
+        'SELECT status FROM toph_internal.migrations WHERE name = $1 AND project_id = $2',
+        [name, project.id]
+      );
+
+      if (existing[0]?.status === 'applied') {
+        failed.push({ name, error: 'Migration already applied' });
+        continue;
+      }
+
+      // Read migration file
+      const filePath = join(process.cwd(), 'migrations', 'projects', project.ref, name);
+      let sql: string;
+
+      try {
+        sql = await readFile(filePath, 'utf-8');
+      } catch (error: any) {
+        failed.push({ name, error: 'File not found' });
+        continue;
+      }
+
+      // Apply migration in transaction
+      const client = await fastify.db.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE service_role');
+        await client.query(`SET search_path TO ${quoteIdentifier(project.schemaName)}, public`);
+
+        const startTime = Date.now();
+        await client.query(sql);
+        const duration = Date.now() - startTime;
+
+        // Update status to applied
+        await client.query(
+          `UPDATE toph_internal.migrations
+           SET status = 'applied', applied_at = now(), applied_by = $1, error_message = NULL
+           WHERE name = $2 AND project_id = $3`,
+          [request.platformPayload?.sub, name, project.id]
+        );
+
+        await client.query('COMMIT');
+        invalidateCache(project.schemaName);
+        await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
+
+        applied.push(name);
+
+        fastify.log.info({ name, duration, project: project.ref }, 'Migration applied');
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+
+        // Update status to failed
+        await fastify.db.query(
+          `INSERT INTO toph_internal.migrations (name, project_id, status, error_message)
+           VALUES ($1, $2, 'failed', $3)
+           ON CONFLICT (name, project_id) DO UPDATE SET status = 'failed', error_message = $3`,
+          [name, project.id, error.message]
+        );
+
+        failed.push({ name, error: error.message });
+
+        fastify.log.error({ name, error: error.message, project: project.ref }, 'Migration failed');
+      } finally {
+        client.release();
+      }
+    }
+
+    return { applied, failed };
+  });
+
+  // Delete pending migration
+  fastify.delete('/platform/projects/:projectRef/admin/migrations/:name', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const { name } = request.params as { name: string };
+    const project = request.project!;
+
+    if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(name)) {
+      throw new BadRequestError('Invalid migration filename');
+    }
+
+    // Check status - only allow deleting pending migrations
+    const { rows } = await fastify.db.query(
+      'SELECT status FROM toph_internal.migrations WHERE name = $1 AND project_id = $2',
+      [name, project.id]
+    );
+
+    if (rows[0]?.status === 'applied') {
+      throw new BadRequestError('Cannot delete applied migration');
+    }
+
+    // Delete file
+    const filePath = join(process.cwd(), 'migrations', 'projects', project.ref, name);
+    await unlink(filePath);
+
+    // Delete database record
+    await fastify.db.query(
+      'DELETE FROM toph_internal.migrations WHERE name = $1 AND project_id = $2',
+      [name, project.id]
+    );
+
+    return { message: 'Migration deleted successfully' };
   });
 };
 

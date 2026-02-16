@@ -94,3 +94,32 @@ export interface PaginatedResponse<T> {
   limit: number;
   offset: number;
 }
+
+export interface Migration {
+  name: string;
+  status: 'pending' | 'applied' | 'failed';
+  appliedAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface MigrationListResponse {
+  data: Migration[];
+  pendingCount: number;
+}
+
+export interface MigrationDetail {
+  name: string;
+  content: string;
+  status: string;
+  appliedAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface ApplyMigrationsRequest {
+  names: string[];
+}
+
+export interface ApplyMigrationsResponse {
+  applied: string[];
+  failed: Array<{ name: string; error: string }>;
+}
