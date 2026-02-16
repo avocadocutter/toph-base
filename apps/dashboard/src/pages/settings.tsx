@@ -1,14 +1,70 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
+import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { RefreshCw, Plug } from 'lucide-react';
+import { RefreshCw, Plug, Copy, Check, Eye, EyeOff, RotateCcw } from 'lucide-react';
+
+function ApiKeyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="space-y-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 truncate rounded bg-muted px-3 py-1.5 text-xs font-mono">
+          {visible ? value : '•'.repeat(40)}
+        </code>
+        <button
+          onClick={() => setVisible(!visible)}
+          className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={visible ? 'Hide' : 'Reveal'}
+        >
+          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+        <button
+          onClick={copy}
+          className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Copy"
+        >
+          {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const currentProject = useProjectStore((s) => s.currentProject);
+
+  const projectDetail = useQuery({
+    queryKey: ['project-detail', currentProject?.ref],
+    queryFn: () => api.get<Project>(`/platform/projects/${currentProject!.ref}`),
+    enabled: !!currentProject?.ref,
+  });
+
+  const regenerateKeys = useMutation({
+    mutationFn: () =>
+      api.post<{ anonKey: string; serviceRoleKey: string }>(
+        `/platform/projects/${currentProject!.ref}/regenerate-keys`,
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-detail', currentProject?.ref] });
+      toast.success('API keys regenerated. Previous keys are now invalid.');
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const health = useQuery({
     queryKey: ['health'],
@@ -54,6 +110,51 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-lg font-bold">Settings</h1>
+
+      {/* API Keys */}
+      {currentProject && projectDetail.data && (
+        <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">API Keys</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Use these keys to authenticate client requests to your project.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (confirm('Regenerate all API keys? Existing keys will stop working immediately.')) {
+                  regenerateKeys.mutate();
+                }
+              }}
+              disabled={regenerateKeys.isPending}
+            >
+              <RotateCcw size={14} />
+              Regenerate
+            </Button>
+          </div>
+          <div className="space-y-3">
+            {projectDetail.data.anonKey && (
+              <ApiKeyRow
+                label="Publishable key (anon) — safe for browsers and client-side code"
+                value={projectDetail.data.anonKey}
+              />
+            )}
+            {projectDetail.data.serviceRoleKey && (
+              <ApiKeyRow
+                label="Secret key (service_role) — server-side only, bypasses RLS"
+                value={projectDetail.data.serviceRoleKey}
+              />
+            )}
+          </div>
+          <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            <strong>Project ref:</strong> {currentProject.ref} &nbsp;·&nbsp;
+            <strong>API URL:</strong> <code>/project/{currentProject.ref}/rest/v1</code>
+          </div>
+        </section>
+      )}
 
       {/* Database Status */}
       <section className="space-y-3 rounded-lg border border-border bg-card p-4">
