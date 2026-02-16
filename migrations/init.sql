@@ -1,3 +1,6 @@
+-- FIRST TIME !!!!!
+-- CREATE ROLE toph LOGIN PASSWORD 'changeit';
+
 -- Toph-Base Database Initialization
 -- Multi-tenant schema-per-project architecture
 
@@ -8,13 +11,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Create internal schema
 CREATE SCHEMA IF NOT EXISTS toph_internal;
 
--- Grant toph_admin the ability to create schemas (for project provisioning)
-GRANT CREATE ON DATABASE toph TO toph_admin;
+-- Grant toph the ability to create schemas (for project provisioning)
+GRANT CREATE ON DATABASE toph TO toph;
 
--- Grant toph_admin full access to internal schema
-GRANT ALL ON SCHEMA toph_internal TO toph_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA toph_internal GRANT ALL ON TABLES TO toph_admin;
-ALTER DEFAULT PRIVILEGES IN SCHEMA toph_internal GRANT ALL ON SEQUENCES TO toph_admin;
+-- Grant toph full access to internal schema
+GRANT ALL ON SCHEMA toph_internal TO toph;
+ALTER DEFAULT PRIVILEGES IN SCHEMA toph_internal GRANT ALL ON TABLES TO toph;
+ALTER DEFAULT PRIVILEGES IN SCHEMA toph_internal GRANT ALL ON SEQUENCES TO toph;
 
 -- Create PostgreSQL roles for API access
 DO $$
@@ -31,8 +34,8 @@ BEGIN
 END
 $$;
 
--- Grant the API roles to toph_admin so it can SET ROLE
-GRANT anon, authenticated, service_role TO toph_admin;
+-- Grant the API roles to toph so it can SET ROLE
+GRANT anon, authenticated, service_role TO toph;
 
 -- ============================================================
 -- Platform tables (admin users, projects)
@@ -80,6 +83,7 @@ CREATE TABLE toph_internal.projects (
     jwt_secret      TEXT NOT NULL,
     anon_key        TEXT NOT NULL,
     service_role_key TEXT NOT NULL,
+    postgrest_url   TEXT,  -- URL of the manually-managed PostgREST instance
     status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'deleted')),
     settings        JSONB NOT NULL DEFAULT '{}',
     created_by      UUID NOT NULL REFERENCES toph_internal.platform_users(id),

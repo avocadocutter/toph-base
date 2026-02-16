@@ -4,8 +4,15 @@ export interface Project {
   name: string;
   schemaName: string;
   status: string;
-  anonKey?: string;
-  serviceRoleKey?: string;
+  publishableKey?: string;
+  secretKey?: string;
+  postgrestUrl?: string | null;
+  postgrestHealth?: {
+    url: string;
+    isHealthy: boolean;
+    lastCheck: number;
+    lastError?: string;
+  };
   memberRole: string;
   createdAt: string;
   updatedAt: string;

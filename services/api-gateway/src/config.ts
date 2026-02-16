@@ -2,11 +2,11 @@ import { z } from 'zod';
 
 const configSchema = z.object({
   postgres: z.object({
-    host: z.string().default('localhost'),
-    port: z.coerce.number().default(5432),
-    database: z.string().default('toph'),
-    user: z.string().default('toph_admin'),
-    password: z.string().default('changeme'),
+    host: z.string().min(1, 'POSTGRES_HOST is required'),
+    port: z.coerce.number().positive('POSTGRES_PORT must be a positive number'),
+    database: z.string().min(1, 'POSTGRES_DB is required'),
+    user: z.string().min(1, 'POSTGRES_USER is required'),
+    password: z.string().min(1, 'POSTGRES_PASSWORD is required'),
   }),
   jwt: z.object({
     platformSecret: z.string().min(32).default('change-this-to-a-random-string-at-least-32-chars'),
@@ -33,6 +33,11 @@ const configSchema = z.object({
     enableSignup: z.coerce.boolean().default(true),
     requireAuthForApi: z.coerce.boolean().default(true),
   }),
+  postgrest: z.object({
+    healthCheckIntervalMs: z.coerce.number().default(30000),
+    healthCheckTimeoutMs: z.coerce.number().default(5000),
+  }),
+  publicApiUrl: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -72,5 +77,10 @@ export function loadConfig(): Config {
       enableSignup: env.ENABLE_SIGNUP,
       requireAuthForApi: env.REQUIRE_AUTH_FOR_API,
     },
+    postgrest: {
+      healthCheckIntervalMs: env.POSTGREST_HEALTH_CHECK_INTERVAL_MS,
+      healthCheckTimeoutMs: env.POSTGREST_HEALTH_CHECK_TIMEOUT_MS,
+    },
+    publicApiUrl: env.PUBLIC_API_URL,
   });
 }

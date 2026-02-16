@@ -11,6 +11,7 @@ import { SqlEditorPage } from './pages/sql-editor';
 import { UsersPage } from './pages/users';
 import { PoliciesPage } from './pages/policies';
 import { SettingsPage } from './pages/settings';
+import { DocsPage } from './pages/docs';
 import { OverviewPage } from './pages/overview';
 import { useAuthStore } from './stores/auth-store';
 
@@ -60,6 +61,7 @@ export function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="policies" element={<PoliciesPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="docs" element={<DocsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

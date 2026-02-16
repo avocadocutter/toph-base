@@ -1,6 +1,7 @@
 import type { DbPool } from '../db/pool.js';
 import type { Config } from '../config.js';
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { PostgrestManager } from '../lib/postgrest-manager.js';
 
 export interface PlatformJwtPayload {
   sub: string;
@@ -36,6 +37,7 @@ declare module 'fastify' {
     db: DbPool;
     config: Config;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    postgrestManager: PostgrestManager;
   }
 
   interface FastifyRequest {

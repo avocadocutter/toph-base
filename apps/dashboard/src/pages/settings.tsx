@@ -5,8 +5,9 @@ import { useProjectStore } from '@/stores/project-store';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { RefreshCw, Plug, Copy, Check, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { RefreshCw, Plug, Copy, Check, Eye, EyeOff, RotateCcw, Save, AlertCircle, CheckCircle } from 'lucide-react';
 
 function ApiKeyRow({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -56,7 +57,7 @@ export function SettingsPage() {
 
   const regenerateKeys = useMutation({
     mutationFn: () =>
-      api.post<{ anonKey: string; serviceRoleKey: string }>(
+      api.post<{ publishableKey: string; secretKey: string }>(
         `/platform/projects/${currentProject!.ref}/regenerate-keys`,
       ),
     onSuccess: () => {
@@ -107,9 +108,49 @@ export function SettingsPage() {
     },
   });
 
+  const [postgrestUrl, setPostgrestUrl] = useState('');
+  const [isEditingPostgrest, setIsEditingPostgrest] = useState(false);
+
+  const updatePostgrestUrl = useMutation({
+    mutationFn: (url: string | null) =>
+      api.patch(`/platform/projects/${currentProject!.ref}`, {
+        postgrestUrl: url || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-detail', currentProject?.ref] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setIsEditingPostgrest(false);
+      toast.success('PostgREST URL updated');
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   return (
     <div className="space-y-6">
       <h1 className="text-lg font-bold">Settings</h1>
+
+      {/* Loading State */}
+      {projectDetail.isLoading && (
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading project details...</p>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {projectDetail.isError && (
+        <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="text-red-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h3 className="font-semibold text-red-600 dark:text-red-400">Failed to load project details</h3>
+              <p className="text-sm text-red-600/80 dark:text-red-400/80">
+                {projectDetail.error?.message || 'An unknown error occurred'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* API Keys */}
       {currentProject && projectDetail.data && (
@@ -118,40 +159,171 @@ export function SettingsPage() {
             <div>
               <h2 className="text-sm font-semibold">API Keys</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Use these keys to authenticate client requests to your project.
+                Use these keys to authenticate requests to your project.
               </p>
             </div>
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
-                if (confirm('Regenerate all API keys? Existing keys will stop working immediately.')) {
+                if (confirm('Regenerate API keys? Existing keys will stop working immediately.')) {
                   regenerateKeys.mutate();
                 }
               }}
               disabled={regenerateKeys.isPending}
             >
               <RotateCcw size={14} />
-              Regenerate
+              Regenerate Keys
             </Button>
           </div>
+
           <div className="space-y-3">
-            {projectDetail.data.anonKey && (
+            {projectDetail.data.publishableKey ? (
               <ApiKeyRow
-                label="Publishable key (anon) — safe for browsers and client-side code"
-                value={projectDetail.data.anonKey}
+                label="Publishable key — safe for browsers, mobile apps, and public repositories"
+                value={projectDetail.data.publishableKey}
               />
+            ) : (
+              <div className="rounded bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs">
+                <strong className="text-yellow-600 dark:text-yellow-400">No publishable key found.</strong>
+                <span className="text-muted-foreground">
+                  {' '}Click "Regenerate Keys" to generate new API keys.
+                </span>
+              </div>
             )}
-            {projectDetail.data.serviceRoleKey && (
+            {projectDetail.data.secretKey ? (
               <ApiKeyRow
-                label="Secret key (service_role) — server-side only, bypasses RLS"
-                value={projectDetail.data.serviceRoleKey}
+                label="Secret key — server-side only, bypasses RLS, automatically blocked from browsers"
+                value={projectDetail.data.secretKey}
               />
+            ) : (
+              <div className="rounded bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs">
+                <strong className="text-yellow-600 dark:text-yellow-400">No secret key found.</strong>
+                <span className="text-muted-foreground">
+                  {' '}Click "Regenerate Keys" to generate new API keys.
+                </span>
+              </div>
             )}
           </div>
+
           <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
             <strong>Project ref:</strong> {currentProject.ref} &nbsp;·&nbsp;
-            <strong>API URL:</strong> <code>/project/{currentProject.ref}/rest/v1</code>
+            <strong>API URL:</strong> <code>/rest/v1/*</code> (with apikey header)
+          </div>
+        </section>
+      )}
+
+      {/* PostgREST Configuration */}
+      {currentProject && projectDetail.data && (
+        <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+          <div>
+            <h2 className="text-sm font-semibold">PostgREST Configuration</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Configure the PostgREST instance URL for your project's REST API.
+            </p>
+          </div>
+
+          {/* Health Status */}
+          {projectDetail.data.postgrestHealth && (
+            <div className="flex items-center gap-2 text-sm">
+              {projectDetail.data.postgrestHealth.isHealthy ? (
+                <>
+                  <CheckCircle size={16} className="text-green-500" />
+                  <span className="text-green-600 dark:text-green-400">PostgREST instance is healthy</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle size={16} className="text-red-500" />
+                  <span className="text-red-600 dark:text-red-400">
+                    PostgREST instance is not responding
+                    {projectDetail.data.postgrestHealth.lastError && (
+                      <span className="text-xs text-muted-foreground ml-1">
+                        ({projectDetail.data.postgrestHealth.lastError})
+                      </span>
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* URL Configuration */}
+          <div className="space-y-2">
+            <span className="text-xs text-muted-foreground">PostgREST URL</span>
+            {isEditingPostgrest ? (
+              <div className="space-y-2">
+                <Input
+                  type="url"
+                  placeholder="http://localhost:9001"
+                  value={postgrestUrl}
+                  onChange={(e) => setPostgrestUrl(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => updatePostgrestUrl.mutate(postgrestUrl)}
+                    disabled={updatePostgrestUrl.isPending}
+                  >
+                    <Save size={14} />
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setIsEditingPostgrest(false);
+                      setPostgrestUrl(projectDetail.data?.postgrestUrl || '');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  {projectDetail.data.postgrestUrl && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (confirm('Remove PostgREST URL? The REST API will not be available until a new URL is configured.')) {
+                          updatePostgrestUrl.mutate(null);
+                        }
+                      }}
+                      disabled={updatePostgrestUrl.isPending}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
+                  {projectDetail.data.postgrestUrl || 'Not configured'}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPostgrestUrl(projectDetail.data?.postgrestUrl || '');
+                    setIsEditingPostgrest(true);
+                  }}
+                >
+                  Edit
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {!projectDetail.data.postgrestUrl && (
+            <div className="rounded bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs">
+              <strong className="text-yellow-600 dark:text-yellow-400">No PostgREST instance configured.</strong>
+              <span className="text-muted-foreground">
+                {' '}The REST API endpoint (<code>/rest/v1/*</code>) will return a 503 error until you configure a PostgREST URL.
+              </span>
+            </div>
+          )}
+
+          <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            <strong>Example:</strong> http://localhost:9001 (PostgREST should be configured to connect to your project's schema)
           </div>
         </section>
       )}

@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   FolderOpen,
   ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 
 const projectItems = [
@@ -26,6 +27,7 @@ const projectItems = [
 const platformItems = [
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/docs', icon: BookOpen, label: 'Docs' },
 ];
 
 export function Sidebar() {

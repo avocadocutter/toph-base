@@ -115,33 +115,33 @@ export function ProjectsPage() {
             </div>
             <p className="mt-1 text-xs text-muted-foreground">ref: {project.ref}</p>
 
-            {(project.anonKey || project.serviceRoleKey) && (
+            {(project.publishableKey || project.secretKey) && (
               <div className="mt-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                {project.anonKey && (
+                {project.publishableKey && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground w-16 shrink-0">anon</span>
+                    <span className="text-[10px] text-muted-foreground w-16 shrink-0">publishable</span>
                     <code className="flex-1 truncate rounded bg-muted px-2 py-0.5 text-[10px]">
-                      {project.anonKey}
+                      {project.publishableKey}
                     </code>
                     <button
-                      onClick={() => copyKey(project.anonKey!, `anon-${project.id}`)}
+                      onClick={() => copyKey(project.publishableKey!, `pub-${project.id}`)}
                       className="text-muted-foreground hover:text-foreground"
                     >
-                      {copiedKey === `anon-${project.id}` ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedKey === `pub-${project.id}` ? <Check size={12} /> : <Copy size={12} />}
                     </button>
                   </div>
                 )}
-                {project.serviceRoleKey && (
+                {project.secretKey && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground w-16 shrink-0">service</span>
+                    <span className="text-[10px] text-muted-foreground w-16 shrink-0">secret</span>
                     <code className="flex-1 truncate rounded bg-muted px-2 py-0.5 text-[10px]">
-                      {project.serviceRoleKey}
+                      {project.secretKey}
                     </code>
                     <button
-                      onClick={() => copyKey(project.serviceRoleKey!, `service-${project.id}`)}
+                      onClick={() => copyKey(project.secretKey!, `secret-${project.id}`)}
                       className="text-muted-foreground hover:text-foreground"
                     >
-                      {copiedKey === `service-${project.id}` ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedKey === `secret-${project.id}` ? <Check size={12} /> : <Copy size={12} />}
                     </button>
                   </div>
                 )}

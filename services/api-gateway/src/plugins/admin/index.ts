@@ -290,6 +290,10 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     await fastify.db.query(`GRANT ALL ON ${qualifiedName} TO service_role`);
 
     invalidateCache(project.schemaName);
+
+    // Notify PostgREST to reload schema cache
+    await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
+
     reply.status(201);
     return { message: `Table ${project.schemaName}.${body.name} created`, sql };
   });
@@ -307,6 +311,9 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
     await fastify.db.query(`DROP TABLE ${quoteQualifiedIdentifier(project.schemaName, table)} CASCADE`);
     invalidateCache(project.schemaName);
+
+    // Notify PostgREST to reload schema cache
+    await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
 
     return { message: `Table ${project.schemaName}.${table} dropped` };
   });
@@ -332,6 +339,11 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       }
       const duration = Date.now() - startTime;
       invalidateCache(project.schemaName);
+
+      // Notify PostgREST to reload schema cache (in case DDL was executed)
+      await fastify.db.query(`NOTIFY pgrst, 'reload schema'`).catch(() => {
+        // Ignore errors (e.g., if not in a transaction)
+      });
 
       return {
         rows: result.rows ?? [],

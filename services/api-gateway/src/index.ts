@@ -15,8 +15,10 @@ import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
 import adminPlugin from './plugins/admin/index.js';
 import projectsPlugin from './plugins/projects/index.js';
-import compatRestPlugin from './plugins/compat-rest/index.js';
+import apiKeysPlugin from './plugins/api-keys/index.js';
+import postgrestProxyPlugin from './plugins/postgrest-proxy/index.js';
 import compatAuthPlugin from './plugins/compat-auth/index.js';
+import { PostgrestManager } from './lib/postgrest-manager.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -24,6 +26,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const config = loadConfig();
+
+  // Log database credentials for debugging
+  console.log('Database credentials:');
+  console.log('  Host:', config.postgres.host);
+  console.log('  Port:', config.postgres.port);
+  console.log('  Database:', config.postgres.database);
+  console.log('  User:', config.postgres.user);
+  console.log('  Password:', config.postgres.password);
 
   const fastify = Fastify({
     logger: {
@@ -37,10 +47,18 @@ async function main() {
   // Create database pool
   const db = createPool(config.postgres);
 
+  // Create PostgREST manager (for health checking manually-managed instances)
+  const postgrestManager = new PostgrestManager({
+    healthCheckIntervalMs: config.postgrest.healthCheckIntervalMs,
+    healthCheckTimeoutMs: config.postgrest.healthCheckTimeoutMs,
+    logger: fastify.log,
+  });
+
   // Decorate fastify with shared instances
   fastify.decorate('db', db);
   fastify.decorate('config', config);
   fastify.decorate('authenticate', authenticatePlatform);
+  fastify.decorate('postgrestManager', postgrestManager);
 
   // Initialize platform JWT
   initPlatformJwt(config);
@@ -94,10 +112,11 @@ async function main() {
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
   await fastify.register(projectsPlugin);
+  await fastify.register(apiKeysPlugin);
   await fastify.register(restApiPlugin);
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
-  await fastify.register(compatRestPlugin);
+  await fastify.register(postgrestProxyPlugin);
   await fastify.register(compatAuthPlugin);
 
   // Serve dashboard static files if they exist
@@ -130,6 +149,25 @@ async function main() {
 
   // Bootstrap admin user
   await bootstrapAdmin(db, config);
+
+  // Register PostgREST instances for all active projects with configured URLs
+  const activeProjects = await db.query(
+    `SELECT ref, postgrest_url FROM toph_internal.projects WHERE status = 'active' AND postgrest_url IS NOT NULL`
+  );
+  for (const project of activeProjects.rows) {
+    await postgrestManager.registerInstance(project.ref, project.postgrest_url);
+  }
+
+  // Graceful shutdown handlers
+  const shutdown = async () => {
+    fastify.log.info('Shutting down gracefully...');
+    postgrestManager.shutdown();
+    await fastify.close();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   // Start server
   await fastify.listen({ port: config.server.port, host: config.server.host });
