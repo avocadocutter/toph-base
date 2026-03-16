@@ -1,4 +1,4 @@
-.PHONY: install dev build clean
+.PHONY: install dev build test clean
 
 node_modules: package.json pnpm-lock.yaml
 	pnpm install
@@ -11,6 +11,9 @@ dev: node_modules
 
 build: node_modules
 	pnpm build
+
+test: node_modules
+	pnpm test
 
 clean:
 	rm -rf dist

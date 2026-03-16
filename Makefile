@@ -1,20 +1,19 @@
 .PHONY: install dev build test clean \
 	dashboard/install dashboard/dev dashboard/build dashboard/clean \
-	api/install api/dev api/build api/test api/clean api/migrate \
-	shared/install shared/build shared/clean
+	api/install api/dev api/build api/test api/clean
 
 # ── Orchestration ────────────────────────────────────────────
 
-install: shared/install api/install dashboard/install
+install: api/install dashboard/install
 
 dev:
-	$(MAKE) -j3 shared/build api/dev dashboard/dev
+	$(MAKE) -j2 api/dev dashboard/dev
 
-build: shared/build api/build dashboard/build
+build: api/build dashboard/build
 
 test: api/test
 
-clean: api/clean dashboard/clean shared/clean
+clean: api/clean dashboard/clean
 
 # ── Dashboard (apps/dashboard) ───────────────────────────────
 
@@ -30,33 +29,20 @@ dashboard/build:
 dashboard/clean:
 	$(MAKE) -C apps/dashboard clean
 
-# ── API Gateway (services/api-gateway) ───────────────────────
+# ── API (apps/api) ───────────────────────────────────────────
 
 api/install:
-	$(MAKE) -C services/api-gateway install
+	$(MAKE) -C apps/api install
 
 api/dev:
-	$(MAKE) -C services/api-gateway dev
+	$(MAKE) -C apps/api dev
 
 api/build:
-	$(MAKE) -C services/api-gateway build
+	$(MAKE) -C apps/api build
 
 api/test:
-	$(MAKE) -C services/api-gateway test
+	$(MAKE) -C apps/api test
 
 api/clean:
-	$(MAKE) -C services/api-gateway clean
+	$(MAKE) -C apps/api clean
 
-api/migrate:
-	$(MAKE) -C services/api-gateway migrate
-
-# ── Shared (packages/shared) ────────────────────────────────
-
-shared/install:
-	$(MAKE) -C packages/shared install
-
-shared/build:
-	$(MAKE) -C packages/shared build
-
-shared/clean:
-	$(MAKE) -C packages/shared clean
