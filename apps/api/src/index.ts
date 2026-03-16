@@ -173,7 +173,7 @@ async function main() {
   await fastify.register(postgrestProxyPlugin);
 
   // Serve dashboard static files if they exist
-  const dashboardPath = path.resolve(__dirname, '../../apps/dashboard/dist');
+  const dashboardPath = path.resolve(__dirname, '../../dashboard/dist');
   try {
     await fastify.register(fastifyStatic, {
       root: dashboardPath,

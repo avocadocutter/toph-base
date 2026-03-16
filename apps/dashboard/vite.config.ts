@@ -13,9 +13,9 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/platform': 'http://localhost:8000',
-      '/project': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/platform': 'http://localhost:8001',
+      '/project': 'http://localhost:8001',
+      '/health': 'http://localhost:8001',
     },
   },
 });

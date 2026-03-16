@@ -1,6 +1,6 @@
 .PHONY: install dev build clean
 
-node_modules: package.json pnpm-lock.yaml
+node_modules: package.json $(wildcard pnpm-lock.yaml)
 	pnpm install
 	@touch node_modules
 
