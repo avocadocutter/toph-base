@@ -5,7 +5,7 @@ import { AppError } from '../../lib/errors.js';
 import { generateApiKey } from '../auth/jwt.js';
 
 const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveFromApikey = createApikeyResolver(fastify.db);
+  const resolveFromApikey = createApikeyResolver(fastify.db, fastify.projectPoolManager);
 
   await fastify.register(replyFrom, {
     undici: {
@@ -97,9 +97,9 @@ const postgrestProxyPlugin: FastifyPluginAsync = async (fastify) => {
       delete headers.apikey;
 
       // Set schema profile headers for PostgREST
-      // PostgREST uses these headers to determine which schema to use
-      headers['accept-profile'] = project.schemaName;
-      headers['content-profile'] = project.schemaName;
+      // Each project has its own database, so we always use the 'public' schema
+      headers['accept-profile'] = 'public';
+      headers['content-profile'] = 'public';
 
       // Remove host header to avoid conflicts
       delete headers.host;

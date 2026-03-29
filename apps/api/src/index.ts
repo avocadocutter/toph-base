@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { loadConfig } from './config.js';
-import { createPool } from './db/pool.js';
+import { ProjectPoolManager } from './db/pool-manager.js';
 import { initPlatformJwt } from './plugins/auth/jwt.js';
 import { authenticatePlatform } from './hooks/authenticate.js';
 import { hashPassword } from './plugins/auth/password.js';
@@ -43,8 +43,13 @@ async function main() {
     },
   });
 
-  // Create database pool
-  const db = createPool(config.postgres);
+  // Create pool manager (platform + per-project pools)
+  const poolManager = new ProjectPoolManager(config.postgres, {
+    maxPools: config.poolManager.maxPools,
+    idleEvictionMs: config.poolManager.idleEvictionMs,
+    projectPoolSize: config.poolManager.projectPoolSize,
+  });
+  const db = poolManager.getPlatformPool();
 
   // Create PostgREST manager (for health checking manually-managed instances)
   const postgrestManager = new PostgrestManager({
@@ -58,6 +63,7 @@ async function main() {
   fastify.decorate('config', config);
   fastify.decorate('authenticate', authenticatePlatform);
   fastify.decorate('postgrestManager', postgrestManager);
+  fastify.decorate('projectPoolManager', poolManager);
 
   // Initialize platform JWT
   initPlatformJwt(config);
@@ -179,7 +185,7 @@ async function main() {
       root: dashboardPath,
       prefix: '/',
       wildcard: false,
-      decorateReply: false,
+      decorateReply: true,
     });
 
     // SPA fallback — serve index.html for unknown routes
@@ -215,6 +221,7 @@ async function main() {
   const shutdown = async () => {
     fastify.log.info('Shutting down gracefully...');
     postgrestManager.shutdown();
+    await poolManager.shutdown();
     await fastify.close();
     process.exit(0);
   };

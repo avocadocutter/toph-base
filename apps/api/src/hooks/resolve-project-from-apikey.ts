@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { DbPool } from '../db/pool.js';
+import type { ProjectPoolManager } from '../db/pool-manager.js';
 import * as jose from 'jose';
 import { resolveProjectByRef } from './resolve-project.js';
 import { verifyProjectAccessToken, isNewFormatKey, getKeyPrefix } from '../plugins/auth/jwt.js';
@@ -21,7 +22,7 @@ function isBrowserRequest(userAgent: string | undefined): boolean {
   return browserPatterns.test(userAgent);
 }
 
-export function createApikeyResolver(db: DbPool) {
+export function createApikeyResolver(db: DbPool, poolManager?: ProjectPoolManager) {
   return async function resolveProjectFromApikey(request: FastifyRequest, _reply: FastifyReply) {
     const apikey = request.headers['apikey'] as string | undefined;
     if (!apikey) {
@@ -79,6 +80,10 @@ export function createApikeyResolver(db: DbPool) {
     // Resolve project from ref (uses shared cache)
     const project = await resolveProjectByRef(db, projectRef);
     request.project = project;
+
+    if (poolManager) {
+      request.projectDb = poolManager.getProjectPool(project.dbName);
+    }
 
     // Handle user JWT in Authorization header (if present)
     const authHeader = request.headers.authorization;

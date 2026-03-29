@@ -1,6 +1,5 @@
 import type { DbPool } from '../../db/pool.js';
 import type { ProjectJwtPayload } from '../../types/fastify.js';
-import { quoteIdentifier } from '../../lib/sql-helpers.js';
 import { BadRequestError } from '../../lib/errors.js';
 
 const ALLOWED_ROLES = new Set(['anon', 'authenticated', 'service_role']);
@@ -10,14 +9,10 @@ export async function executeWithRlsContext(
   jwtPayload: ProjectJwtPayload | undefined,
   queryText: string,
   queryValues: unknown[],
-  schemaName: string,
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-
-    // Set search_path to the project schema
-    await client.query(`SET LOCAL search_path TO ${quoteIdentifier(schemaName)}, public`);
 
     // Set the role based on authentication status
     const role = jwtPayload?.role ?? 'anon';

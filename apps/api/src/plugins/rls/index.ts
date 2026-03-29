@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { requirePlatformAdmin } from '../../hooks/authenticate.js';
 import { createProjectResolver } from '../../hooks/resolve-project.js';
-import { quoteIdentifier, quoteQualifiedIdentifier, isValidIdentifier, validateRlsPolicyExpression } from '../../lib/sql-helpers.js';
+import { quoteIdentifier, isValidIdentifier, validateRlsPolicyExpression } from '../../lib/sql-helpers.js';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
 import { invalidateCache } from '../introspection/inspector.js';
@@ -16,7 +16,7 @@ const createPolicySchema = z.object({
 });
 
 const rlsPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveProject = createProjectResolver(fastify.db);
+  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
 
   // Policy templates (no project scope needed)
   fastify.get('/platform/admin/rls/templates', { preHandler: [requirePlatformAdmin] }, async () => {
@@ -59,20 +59,20 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
-    const project = request.project!;
+    const projectDb = request.projectDb!;
 
-    const result = await fastify.db.query(
+    const result = await projectDb.query(
       `SELECT c.relrowsecurity, c.relforcerowsecurity
        FROM pg_class c
        JOIN pg_namespace n ON c.relnamespace = n.oid
-       WHERE n.nspname = $1 AND c.relname = $2`,
-      [project.schemaName, table],
+       WHERE n.nspname = 'public' AND c.relname = $1`,
+      [table],
     );
 
     if (result.rows.length === 0) throw new NotFoundError(`Table '${table}' not found`);
 
     return {
-      table: `${project.schemaName}.${table}`,
+      table,
       rlsEnabled: result.rows[0].relrowsecurity,
       rlsForced: result.rows[0].relforcerowsecurity,
     };
@@ -84,17 +84,18 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
+    const projectDb = request.projectDb!;
 
     if (!isValidIdentifier(table)) {
       throw new BadRequestError('Invalid table name');
     }
 
-    const qualified = quoteQualifiedIdentifier(project.schemaName, table);
-    await fastify.db.query(`ALTER TABLE ${qualified} ENABLE ROW LEVEL SECURITY`);
-    await fastify.db.query(`ALTER TABLE ${qualified} FORCE ROW LEVEL SECURITY`);
-    invalidateCache(project.schemaName);
+    const tableName = quoteIdentifier(table);
+    await projectDb.query(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+    await projectDb.query(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
+    invalidateCache(project.ref);
 
-    return { message: `RLS enabled on ${project.schemaName}.${table}` };
+    return { message: `RLS enabled on ${table}` };
   });
 
   // Disable RLS
@@ -103,17 +104,18 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
+    const projectDb = request.projectDb!;
 
     if (!isValidIdentifier(table)) {
       throw new BadRequestError('Invalid table name');
     }
 
-    const qualified = quoteQualifiedIdentifier(project.schemaName, table);
-    await fastify.db.query(`ALTER TABLE ${qualified} DISABLE ROW LEVEL SECURITY`);
-    await fastify.db.query(`ALTER TABLE ${qualified} NO FORCE ROW LEVEL SECURITY`);
-    invalidateCache(project.schemaName);
+    const tableName = quoteIdentifier(table);
+    await projectDb.query(`ALTER TABLE ${tableName} DISABLE ROW LEVEL SECURITY`);
+    await projectDb.query(`ALTER TABLE ${tableName} NO FORCE ROW LEVEL SECURITY`);
+    invalidateCache(project.ref);
 
-    return { message: `RLS disabled on ${project.schemaName}.${table}` };
+    return { message: `RLS disabled on ${table}` };
   });
 
   // List policies
@@ -121,9 +123,9 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
-    const project = request.project!;
+    const projectDb = request.projectDb!;
 
-    const result = await fastify.db.query(
+    const result = await projectDb.query(
       `SELECT
         pol.polname AS name,
         CASE pol.polcmd
@@ -140,15 +142,15 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
        FROM pg_policy pol
        JOIN pg_class cls ON pol.polrelid = cls.oid
        JOIN pg_namespace nsp ON cls.relnamespace = nsp.oid
-       WHERE nsp.nspname = $1 AND cls.relname = $2
+       WHERE nsp.nspname = 'public' AND cls.relname = $1
        ORDER BY pol.polname`,
-      [project.schemaName, table],
+      [table],
     );
 
     return result.rows.map(row => ({
       name: row.name,
-      table: `${project.schemaName}.${table}`,
-      schema: project.schemaName,
+      table,
+      schema: 'public',
       command: row.command,
       permissive: row.permissive,
       roles: row.roles,
@@ -163,6 +165,7 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
+    const projectDb = request.projectDb!;
     const body = createPolicySchema.parse(request.body);
 
     if (!isValidIdentifier(body.name)) throw new BadRequestError('Invalid policy name');
@@ -172,19 +175,19 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Validate expressions against SQL injection
     if (body.using) {
-      await validateRlsPolicyExpression(fastify.db, project.schemaName, table, body.using);
+      await validateRlsPolicyExpression(projectDb, 'public', table, body.using);
     }
     if (body.withCheck) {
-      await validateRlsPolicyExpression(fastify.db, project.schemaName, table, body.withCheck);
+      await validateRlsPolicyExpression(projectDb, 'public', table, body.withCheck);
     }
 
-    const qualifiedTable = quoteQualifiedIdentifier(project.schemaName, table);
+    const tableName = quoteIdentifier(table);
     const policyName = quoteIdentifier(body.name);
     const permissive = body.permissive ? 'PERMISSIVE' : 'RESTRICTIVE';
     const command = body.command;
     const roles = body.roles.map((r: string) => quoteIdentifier(r)).join(', ');
 
-    let sql = `CREATE POLICY ${policyName} ON ${qualifiedTable} AS ${permissive} FOR ${command} TO ${roles}`;
+    let sql = `CREATE POLICY ${policyName} ON ${tableName} AS ${permissive} FOR ${command} TO ${roles}`;
 
     if (body.using) {
       sql += ` USING (${body.using})`;
@@ -193,10 +196,10 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
       sql += ` WITH CHECK (${body.withCheck})`;
     }
 
-    await fastify.db.query(sql);
-    invalidateCache(project.schemaName);
+    await projectDb.query(sql);
+    invalidateCache(project.ref);
 
-    return { message: `Policy '${body.name}' created on ${project.schemaName}.${table}` };
+    return { message: `Policy '${body.name}' created on ${table}` };
   });
 
   // Delete policy
@@ -205,16 +208,17 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest) => {
     const { table, policyName } = request.params as { table: string; policyName: string; projectRef: string };
     const project = request.project!;
+    const projectDb = request.projectDb!;
 
     if (!isValidIdentifier(table) || !isValidIdentifier(policyName)) {
       throw new BadRequestError('Invalid identifier');
     }
 
-    const qualifiedTable = quoteQualifiedIdentifier(project.schemaName, table);
-    await fastify.db.query(`DROP POLICY ${quoteIdentifier(policyName)} ON ${qualifiedTable}`);
-    invalidateCache(project.schemaName);
+    const tableName = quoteIdentifier(table);
+    await projectDb.query(`DROP POLICY ${quoteIdentifier(policyName)} ON ${tableName}`);
+    invalidateCache(project.ref);
 
-    return { message: `Policy '${policyName}' dropped from ${project.schemaName}.${table}` };
+    return { message: `Policy '${policyName}' dropped from ${table}` };
   });
 };
 

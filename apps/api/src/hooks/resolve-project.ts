@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { DbPool } from '../db/pool.js';
 import type { ResolvedProject } from '../types/fastify.js';
+import type { ProjectPoolManager } from '../db/pool-manager.js';
 import { NotFoundError } from '../lib/errors.js';
 
 const CACHE_TTL_MS = 60_000;
@@ -20,7 +21,7 @@ export async function resolveProjectByRef(db: DbPool, ref: string): Promise<Reso
   }
 
   const result = await db.query(
-    `SELECT id, ref, schema_name, jwt_secret, status
+    `SELECT id, ref, db_name, jwt_secret, status
      FROM toph_internal.projects
      WHERE ref = $1 AND status != 'deleted'`,
     [ref],
@@ -34,7 +35,7 @@ export async function resolveProjectByRef(db: DbPool, ref: string): Promise<Reso
   const project: ResolvedProject = {
     id: row.id,
     ref: row.ref,
-    schemaName: row.schema_name,
+    dbName: row.db_name,
     jwtSecret: row.jwt_secret,
     status: row.status,
   };
@@ -43,7 +44,7 @@ export async function resolveProjectByRef(db: DbPool, ref: string): Promise<Reso
   return project;
 }
 
-export function createProjectResolver(db: DbPool) {
+export function createProjectResolver(db: DbPool, poolManager?: ProjectPoolManager) {
   return async function resolveProject(request: FastifyRequest, _reply: FastifyReply) {
     // Try to get project ref from multiple sources:
     // 1. Route params (e.g., /project/:projectRef/...)
@@ -76,7 +77,12 @@ export function createProjectResolver(db: DbPool) {
       throw new NotFoundError('Project reference is required');
     }
 
-    request.project = await resolveProjectByRef(db, projectRef);
+    const project = await resolveProjectByRef(db, projectRef);
+    request.project = project;
+
+    if (poolManager) {
+      request.projectDb = poolManager.getProjectPool(project.dbName);
+    }
   };
 }
 

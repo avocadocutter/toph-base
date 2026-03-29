@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { hashPassword, verifyPassword } from './password.js';
 import { createProjectAccessToken, createRefreshToken, hashRefreshToken } from './jwt.js';
 import { BadRequestError, ConflictError, UnauthorizedError } from '../../lib/errors.js';
-import { quoteIdentifier } from '../../lib/sql-helpers.js';
 import crypto from 'node:crypto';
 
 const signupSchema = z.object({
@@ -16,21 +15,12 @@ const signinSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-function usersTable(schema: string) {
-  return `${quoteIdentifier(schema)}."users"`;
-}
-
-function sessionsTable(schema: string) {
-  return `${quoteIdentifier(schema)}."sessions"`;
-}
-
 export async function projectSignupHandler(request: FastifyRequest, reply: FastifyReply) {
   const body = signupSchema.parse(request.body);
   const { email, password } = body;
-  const db = request.server.db;
+  const db = request.projectDb!;
   const config = request.server.config;
   const project = request.project!;
-  const schema = project.schemaName;
 
   const client = await db.connect();
   try {
@@ -38,7 +28,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
     await client.query(`SET LOCAL ROLE service_role`);
 
     const existing = await client.query(
-      `SELECT id FROM ${usersTable(schema)} WHERE email = $1`,
+      `SELECT id FROM "users" WHERE email = $1`,
       [email],
     );
     if (existing.rows.length > 0) {
@@ -47,7 +37,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
 
     const passwordHash = await hashPassword(password);
     const result = await client.query(
-      `INSERT INTO ${usersTable(schema)} (email, password_hash, role)
+      `INSERT INTO "users" (email, password_hash, role)
        VALUES ($1, $2, 'authenticated')
        RETURNING id, email, role, email_confirmed, is_disabled, created_at, updated_at`,
       [email, passwordHash],
@@ -62,7 +52,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
     const familyId = crypto.randomUUID();
 
     await client.query(
-      `INSERT INTO ${sessionsTable(schema)} (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [user.id, hashRefreshToken(refreshToken), familyId, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -96,10 +86,9 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
 export async function projectSigninHandler(request: FastifyRequest, reply: FastifyReply) {
   const body = signinSchema.parse(request.body);
   const { email, password } = body;
-  const db = request.server.db;
+  const db = request.projectDb!;
   const config = request.server.config;
   const project = request.project!;
-  const schema = project.schemaName;
 
   const client = await db.connect();
   try {
@@ -108,7 +97,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
 
     const result = await client.query(
       `SELECT id, email, password_hash, role, is_disabled, email_confirmed, created_at, updated_at, last_sign_in_at
-       FROM ${usersTable(schema)} WHERE email = $1`,
+       FROM "users" WHERE email = $1`,
       [email],
     );
 
@@ -128,7 +117,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
     }
 
     await client.query(
-      `UPDATE ${usersTable(schema)} SET last_sign_in_at = now() WHERE id = $1`,
+      `UPDATE "users" SET last_sign_in_at = now() WHERE id = $1`,
       [user.id],
     );
 
@@ -139,7 +128,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
     const familyId = crypto.randomUUID();
 
     await client.query(
-      `INSERT INTO ${sessionsTable(schema)} (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [user.id, hashRefreshToken(refreshToken), familyId, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -177,10 +166,9 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
     throw new BadRequestError('Refresh token is required');
   }
 
-  const db = request.server.db;
+  const db = request.projectDb!;
   const config = request.server.config;
   const project = request.project!;
-  const schema = project.schemaName;
   const tokenHash = hashRefreshToken(body.refresh_token);
 
   const client = await db.connect();
@@ -190,8 +178,8 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
 
     const sessionResult = await client.query(
       `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled, u.email_confirmed, u.created_at, u.updated_at, u.last_sign_in_at
-       FROM ${sessionsTable(schema)} s
-       JOIN ${usersTable(schema)} u ON s.user_id = u.id
+       FROM "sessions" s
+       JOIN "users" u ON s.user_id = u.id
        WHERE s.refresh_token_hash = $1 AND s.expires_at > now()`,
       [tokenHash],
     );
@@ -206,7 +194,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
       throw new UnauthorizedError('Account is disabled');
     }
 
-    await client.query(`DELETE FROM ${sessionsTable(schema)} WHERE id = $1`, [session.id]);
+    await client.query(`DELETE FROM "sessions" WHERE id = $1`, [session.id]);
 
     const newAccessToken = await createProjectAccessToken(
       session.user_id, session.email, session.role, project.ref, project.jwtSecret, config.jwt.accessTokenExpiry,
@@ -214,7 +202,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
     const newRefreshToken = await createRefreshToken();
 
     await client.query(
-      `INSERT INTO ${sessionsTable(schema)} (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [session.user_id, hashRefreshToken(newRefreshToken), session.family_id, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -247,18 +235,14 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
 }
 
 export async function projectSignoutHandler(request: FastifyRequest, reply: FastifyReply) {
-  // Supabase sends refresh token in Authorization header or uses the access token
-  // We'll delete all sessions for the authenticated user
-  const db = request.server.db;
-  const project = request.project!;
-  const schema = project.schemaName;
+  const db = request.projectDb!;
 
   if (request.userId) {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
       await client.query(`SET LOCAL ROLE service_role`);
-      await client.query(`DELETE FROM ${sessionsTable(schema)} WHERE user_id = $1`, [request.userId]);
+      await client.query(`DELETE FROM "sessions" WHERE user_id = $1`, [request.userId]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -276,9 +260,7 @@ export async function projectMeHandler(request: FastifyRequest, reply: FastifyRe
     throw new UnauthorizedError();
   }
 
-  const db = request.server.db;
-  const project = request.project!;
-  const schema = project.schemaName;
+  const db = request.projectDb!;
 
   const client = await db.connect();
   try {
@@ -287,7 +269,7 @@ export async function projectMeHandler(request: FastifyRequest, reply: FastifyRe
 
     const result = await client.query(
       `SELECT id, email, role, email_confirmed, is_disabled, metadata, created_at, updated_at, last_sign_in_at
-       FROM ${usersTable(schema)} WHERE id = $1`,
+       FROM "users" WHERE id = $1`,
       [request.userId],
     );
 

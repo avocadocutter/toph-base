@@ -71,7 +71,7 @@ export function SqlEditorPage() {
       <div className="flex-1 min-h-0">
         <SqlEditor
           onExecute={handleExecute}
-          initialValue={`SELECT * FROM ${currentProject?.schemaName ?? 'public'}.users LIMIT 10;`}
+          initialValue={`SELECT * FROM users LIMIT 10;`}
           viewRef={editorViewRef}
           theme={resolvedTheme}
         />

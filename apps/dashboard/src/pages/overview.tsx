@@ -99,17 +99,17 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Database Schema</p>
+            <p className="text-xs text-muted-foreground">Database Name</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
-                {currentProject.schemaName}
+                {currentProject.dbName}
               </code>
               <button
-                onClick={() => copyToClipboard(currentProject.schemaName, 'schema')}
+                onClick={() => copyToClipboard(currentProject.dbName, 'dbName')}
                 className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                title="Copy schema name"
+                title="Copy database name"
               >
-                {copiedField === 'schema' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                {copiedField === 'dbName' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
               </button>
             </div>
           </div>

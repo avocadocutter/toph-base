@@ -1,6 +1,6 @@
 import type { ParsedQuery, ParsedFilter, ParsedOrder } from './query-parser.js';
 import type { TableInfo } from '../introspection/types.js';
-import { quoteIdentifier, quoteQualifiedIdentifier } from '../../lib/sql-helpers.js';
+import { quoteIdentifier } from '../../lib/sql-helpers.js';
 import { BadRequestError } from '../../lib/errors.js';
 
 interface BuiltQuery {
@@ -103,7 +103,7 @@ function buildOrderClause(order: ParsedOrder[], table: TableInfo): string {
 }
 
 export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQuery {
-  const qualifiedTable = quoteQualifiedIdentifier(table.schema, table.name);
+  const qualifiedTable = quoteIdentifier(table.name);
 
   // Column selection
   let selectColumns = '*';
@@ -131,14 +131,14 @@ export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQu
 }
 
 export function buildCountQuery(table: TableInfo, parsed: ParsedQuery): BuiltQuery {
-  const qualifiedTable = quoteQualifiedIdentifier(table.schema, table.name);
+  const qualifiedTable = quoteIdentifier(table.name);
   const { clause: whereClause, values } = buildWhereClause(parsed.filters, table, 0);
   const text = `SELECT count(*)::int AS count FROM ${qualifiedTable} ${whereClause}`;
   return { text, values };
 }
 
 export function buildInsertQuery(table: TableInfo, body: Record<string, unknown>): BuiltQuery {
-  const qualifiedTable = quoteQualifiedIdentifier(table.schema, table.name);
+  const qualifiedTable = quoteIdentifier(table.name);
   const keys = Object.keys(body);
   validateColumns(keys, table);
 
@@ -159,7 +159,7 @@ export function buildUpdateQuery(
     throw new BadRequestError('Update requires at least one filter');
   }
 
-  const qualifiedTable = quoteQualifiedIdentifier(table.schema, table.name);
+  const qualifiedTable = quoteIdentifier(table.name);
   const keys = Object.keys(body);
   validateColumns(keys, table);
 
@@ -177,7 +177,7 @@ export function buildDeleteQuery(table: TableInfo, filters: ParsedFilter[]): Bui
     throw new BadRequestError('Delete requires at least one filter');
   }
 
-  const qualifiedTable = quoteQualifiedIdentifier(table.schema, table.name);
+  const qualifiedTable = quoteIdentifier(table.name);
   const { clause: whereClause, values } = buildWhereClause(filters, table, 0);
 
   const text = `DELETE FROM ${qualifiedTable} ${whereClause} RETURNING *`;

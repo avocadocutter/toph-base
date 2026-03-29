@@ -5,9 +5,10 @@ const CACHE_TTL_MS = 60_000; // 60 seconds
 
 const cacheMap = new Map<string, SchemaCache>();
 
-export async function introspectSchema(db: DbPool, schemaName: string): Promise<Map<string, TableInfo>> {
+export async function introspectSchema(db: DbPool, schemaName: string, cacheKey?: string): Promise<Map<string, TableInfo>> {
+  const key = cacheKey ?? schemaName;
   const now = Date.now();
-  const cached = cacheMap.get(schemaName);
+  const cached = cacheMap.get(key);
   if (cached && cached.lastUpdated > 0 && now - cached.lastUpdated < CACHE_TTL_MS) {
     return cached.tables;
   }
@@ -65,7 +66,7 @@ export async function introspectSchema(db: DbPool, schemaName: string): Promise<
     });
   }
 
-  cacheMap.set(schemaName, { tables: tableMap, lastUpdated: now });
+  cacheMap.set(key, { tables: tableMap, lastUpdated: now });
   return tableMap;
 }
 

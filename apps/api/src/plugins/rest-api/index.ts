@@ -8,7 +8,7 @@ import { createProjectResolver } from '../../hooks/resolve-project.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 
 const restApiPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveProject = createProjectResolver(fastify.db);
+  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
   const authHook = fastify.config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional;
 
   // GET /project/:projectRef/rest/v1/:table - List rows
@@ -17,7 +17,8 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { table: tableName } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const table = tables.get(tableName);
     if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
@@ -26,8 +27,8 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
     const countQuery = buildCountQuery(table, parsed);
 
     const [data, countResult] = await Promise.all([
-      executeWithRlsContext(fastify.db, request.jwtPayload, selectQuery.text, selectQuery.values, project.schemaName),
-      executeWithRlsContext(fastify.db, request.jwtPayload, countQuery.text, countQuery.values, project.schemaName),
+      executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values),
+      executeWithRlsContext(projectDb, request.jwtPayload, countQuery.text, countQuery.values),
     ]);
 
     const total = countResult.rows[0]?.count ?? 0;
@@ -47,7 +48,8 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { table: tableName } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const table = tables.get(tableName);
     if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
@@ -55,7 +57,7 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
     if (!body || typeof body !== 'object') throw new BadRequestError('Request body must be a JSON object');
 
     const query = buildInsertQuery(table, body);
-    const result = await executeWithRlsContext(fastify.db, request.jwtPayload, query.text, query.values, project.schemaName);
+    const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
 
     reply.status(201);
     return result.rows[0];
@@ -67,7 +69,8 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { table: tableName } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const table = tables.get(tableName);
     if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
@@ -78,7 +81,7 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
     const parsed = parseQueryParams(queryParams);
 
     const query = buildUpdateQuery(table, body, parsed.filters);
-    const result = await executeWithRlsContext(fastify.db, request.jwtPayload, query.text, query.values, project.schemaName);
+    const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
 
     return result.rows;
   });
@@ -89,7 +92,8 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { table: tableName } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const table = tables.get(tableName);
     if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
@@ -97,7 +101,7 @@ const restApiPlugin: FastifyPluginAsync = async (fastify) => {
     const parsed = parseQueryParams(queryParams);
 
     const query = buildDeleteQuery(table, parsed.filters);
-    const result = await executeWithRlsContext(fastify.db, request.jwtPayload, query.text, query.values, project.schemaName);
+    const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
 
     return result.rows;
   });

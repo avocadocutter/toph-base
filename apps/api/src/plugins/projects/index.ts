@@ -7,10 +7,13 @@ import {
   generateSecretKey
 } from '../auth/jwt.js';
 import { invalidateProjectCache } from '../../hooks/resolve-project.js';
-import { isValidIdentifier } from '../../lib/sql-helpers.js';
+import { isValidIdentifier, quoteIdentifier } from '../../lib/sql-helpers.js';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
 import { z } from 'zod';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -29,11 +32,13 @@ function generateRef(): string {
 }
 
 const projectsPlugin: FastifyPluginAsync = async (fastify) => {
+  const poolManager = fastify.projectPoolManager;
+
   // List projects for authenticated platform user
   fastify.get('/platform/projects', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
     const userId = request.platformUserId!;
     const result = await fastify.db.query(
-      `SELECT p.id, p.ref, p.name, p.schema_name, p.status, p.created_at, p.updated_at, pm.role AS member_role
+      `SELECT p.id, p.ref, p.name, p.db_name, p.status, p.created_at, p.updated_at, pm.role AS member_role
        FROM toph_internal.projects p
        JOIN toph_internal.project_members pm ON p.id = pm.project_id
        WHERE pm.user_id = $1 AND p.status != 'deleted'
@@ -45,7 +50,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       id: r.id,
       ref: r.ref,
       name: r.name,
-      schemaName: r.schema_name,
+      dbName: r.db_name,
       status: r.status,
       memberRole: r.member_role,
       createdAt: r.created_at,
@@ -91,7 +96,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       id: p.id,
       ref: p.ref,
       name: p.name,
-      schemaName: p.schema_name,
+      dbName: p.db_name,
       jwtSecret: p.jwt_secret,
       status: p.status,
       publishableKey,
@@ -111,10 +116,10 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     const userId = request.platformUserId!;
 
     const ref = body.ref ?? generateRef();
-    const schemaName = `proj_${ref.replace(/-/g, '_')}`;
+    const dbName = `toph_proj_${ref.replace(/-/g, '_')}`;
 
-    if (!isValidIdentifier(schemaName)) {
-      throw new BadRequestError('Generated schema name is invalid. Try a different project ref.');
+    if (!isValidIdentifier(dbName)) {
+      throw new BadRequestError('Generated database name is invalid. Try a different project ref.');
     }
 
     // Check uniqueness
@@ -130,18 +135,20 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     const publishableKey = generatePublishableKey();
     const secretKey = generateSecretKey();
 
+    // Insert project record in platform DB
     const client = await fastify.db.connect();
+    let project: any;
     try {
       await client.query('BEGIN');
 
       const insertResult = await client.query(
-        `INSERT INTO toph_internal.projects (ref, name, schema_name, jwt_secret, postgrest_url, created_by)
+        `INSERT INTO toph_internal.projects (ref, name, db_name, jwt_secret, postgrest_url, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, ref, name, schema_name, status, created_at`,
-        [ref, body.name, schemaName, jwtSecret, body.postgrestUrl ?? null, userId],
+         RETURNING id, ref, name, db_name, status, created_at`,
+        [ref, body.name, dbName, jwtSecret, body.postgrestUrl ?? null, userId],
       );
 
-      const project = insertResult.rows[0];
+      project = insertResult.rows[0];
 
       await client.query(
         `INSERT INTO toph_internal.project_members (project_id, user_id, role) VALUES ($1, $2, 'owner')`,
@@ -161,39 +168,55 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
         [project.id, secretKey, userId],
       );
 
-      // Provision the project schema
-      await client.query('SELECT toph_internal.provision_project_schema($1)', [schemaName]);
-
       await client.query('COMMIT');
-
-      // Register PostgREST instance if URL was provided
-      if (body.postgrestUrl) {
-        const isHealthy = await fastify.postgrestManager.registerInstance(ref, body.postgrestUrl);
-        if (!isHealthy) {
-          fastify.log.warn({ project: ref, url: body.postgrestUrl }, 'PostgREST instance not healthy at creation time');
-        }
-      }
-
-      const postgrestHealth = body.postgrestUrl ? fastify.postgrestManager.getHealth(ref) : null;
-
-      reply.status(201).send({
-        id: project.id,
-        ref: project.ref,
-        name: project.name,
-        schemaName: project.schema_name,
-        status: project.status,
-        publishableKey,
-        secretKey,
-        postgrestUrl: body.postgrestUrl ?? null,
-        postgrestHealth,
-        createdAt: project.created_at,
-      });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
       client.release();
     }
+
+    // CREATE DATABASE outside transaction (DDL can't be in a transaction)
+    try {
+      await fastify.db.query(`CREATE DATABASE ${quoteIdentifier(dbName)}`);
+
+      // Initialize the project database with the template
+      const templatePath = join(process.cwd(), 'migrations', 'project-template.sql');
+      const templateSql = await readFile(templatePath, 'utf-8');
+      const projectPool = poolManager.getProjectPool(dbName);
+      await projectPool.query(templateSql);
+    } catch (error) {
+      // Mark project as provisioning_failed
+      await fastify.db.query(
+        `UPDATE toph_internal.projects SET status = 'provisioning_failed', updated_at = now() WHERE id = $1`,
+        [project.id],
+      );
+      fastify.log.error({ error, dbName, ref }, 'Failed to provision project database');
+      throw new BadRequestError('Failed to provision project database');
+    }
+
+    // Register PostgREST instance if URL was provided
+    if (body.postgrestUrl) {
+      const isHealthy = await fastify.postgrestManager.registerInstance(ref, body.postgrestUrl);
+      if (!isHealthy) {
+        fastify.log.warn({ project: ref, url: body.postgrestUrl }, 'PostgREST instance not healthy at creation time');
+      }
+    }
+
+    const postgrestHealth = body.postgrestUrl ? fastify.postgrestManager.getHealth(ref) : null;
+
+    reply.status(201).send({
+      id: project.id,
+      ref: project.ref,
+      name: project.name,
+      dbName: project.db_name,
+      status: project.status,
+      publishableKey,
+      secretKey,
+      postgrestUrl: body.postgrestUrl ?? null,
+      postgrestHealth,
+      createdAt: project.created_at,
+    });
   });
 
   // Update project
@@ -238,7 +261,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     values.push(ref);
 
     const result = await fastify.db.query(
-      `UPDATE toph_internal.projects SET ${updates.join(', ')} WHERE ref = $${paramIndex} RETURNING id, ref, name, schema_name, postgrest_url, status, updated_at`,
+      `UPDATE toph_internal.projects SET ${updates.join(', ')} WHERE ref = $${paramIndex} RETURNING id, ref, name, db_name, postgrest_url, status, updated_at`,
       values,
     );
 
@@ -267,13 +290,13 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     return proj;
   });
 
-  // Delete project (soft delete)
+  // Delete project
   fastify.delete('/platform/projects/:ref', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
     const { ref } = request.params as { ref: string };
     const userId = request.platformUserId!;
 
     const check = await fastify.db.query(
-      `SELECT p.id FROM toph_internal.projects p
+      `SELECT p.id, p.db_name FROM toph_internal.projects p
        JOIN toph_internal.project_members pm ON p.id = pm.project_id
        WHERE p.ref = $1 AND pm.user_id = $2 AND pm.role = 'owner' AND p.status != 'deleted'`,
       [ref, userId],
@@ -282,10 +305,22 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       throw new NotFoundError('Project not found or insufficient permissions');
     }
 
+    const dbName = check.rows[0].db_name;
+
     await fastify.db.query(
       `UPDATE toph_internal.projects SET status = 'deleted', updated_at = now() WHERE ref = $1`,
       [ref],
     );
+
+    // Close the project pool before dropping the database
+    await poolManager.closeProjectPool(dbName);
+
+    // Drop the project database
+    try {
+      await fastify.db.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(dbName)}`);
+    } catch (error) {
+      fastify.log.error({ error, dbName, ref }, 'Failed to drop project database');
+    }
 
     // Unregister PostgREST instance
     fastify.postgrestManager.unregisterInstance(ref);

@@ -2,6 +2,7 @@ import type { DbPool } from '../db/pool.js';
 import type { Config } from '../config.js';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { PostgrestManager } from '../lib/postgrest-manager.js';
+import type { ProjectPoolManager } from '../db/pool-manager.js';
 
 export interface PlatformJwtPayload {
   sub: string;
@@ -27,7 +28,7 @@ export interface ProjectJwtPayload {
 export interface ResolvedProject {
   id: string;
   ref: string;
-  schemaName: string;
+  dbName: string;
   jwtSecret: string;
   status: string;
 }
@@ -38,6 +39,7 @@ declare module 'fastify' {
     config: Config;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     postgrestManager: PostgrestManager;
+    projectPoolManager: ProjectPoolManager;
   }
 
   interface FastifyRequest {
@@ -47,6 +49,8 @@ declare module 'fastify' {
     // Project auth
     projectPayload?: ProjectJwtPayload;
     project?: ResolvedProject;
+    // Project database pool (set by project resolver)
+    projectDb?: DbPool;
     // Unified (set by project auth for RLS context compat)
     jwtPayload?: ProjectJwtPayload;
     userId?: string;

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { requirePlatformAdmin } from '../../hooks/authenticate.js';
 import { createProjectResolver } from '../../hooks/resolve-project.js';
 import { introspectSchema, invalidateCache } from '../introspection/inspector.js';
-import { quoteIdentifier, quoteQualifiedIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
+import { quoteIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError, ConflictError } from '../../lib/errors.js';
@@ -37,7 +37,7 @@ const applyMigrationsSchema = z.object({
 });
 
 const adminPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveProject = createProjectResolver(fastify.db);
+  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
 
   // ============================================================
   // Platform-level admin routes
@@ -202,12 +202,13 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
   // Project-scoped admin routes
   // ============================================================
 
-  // List tables in project schema
+  // List tables in project database
   fastify.get('/platform/projects/:projectRef/admin/tables', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     return Array.from(tables.values()).map(t => ({
       schema: t.schema,
       name: t.name,
@@ -219,18 +220,19 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     }));
   });
 
-  // Get table details in project schema
+  // Get table details in project database
   fastify.get('/platform/projects/:projectRef/admin/tables/:table', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const info = tables.get(table);
     if (!info) throw new NotFoundError(`Table '${table}' not found in project`);
 
-    const countResult = await fastify.db.query(
-      `SELECT count(*)::int AS count FROM ${quoteQualifiedIdentifier(project.schemaName, table)}`,
+    const countResult = await projectDb.query(
+      `SELECT count(*)::int AS count FROM ${quoteIdentifier(table)}`,
     );
 
     return {
@@ -239,13 +241,14 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // Get table rows in project schema (admin access, bypasses RLS)
+  // Get table rows in project database (admin access, bypasses RLS)
   fastify.get('/platform/projects/:projectRef/admin/tables/:table/rows', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     const info = tables.get(table);
     if (!info) throw new NotFoundError(`Table '${table}' not found in project`);
 
@@ -253,10 +256,10 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     const limit = Math.min(Math.max(parseInt(query.limit || '50', 10) || 50, 1), 1000);
     const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
 
-    const qualifiedName = quoteQualifiedIdentifier(project.schemaName, table);
+    const tableName = quoteIdentifier(table);
     const [dataResult, countResult] = await Promise.all([
-      fastify.db.query(`SELECT * FROM ${qualifiedName} LIMIT $1 OFFSET $2`, [limit, offset]),
-      fastify.db.query(`SELECT count(*)::int AS count FROM ${qualifiedName}`),
+      projectDb.query(`SELECT * FROM ${tableName} LIMIT $1 OFFSET $2`, [limit, offset]),
+      projectDb.query(`SELECT count(*)::int AS count FROM ${tableName}`),
     ]);
 
     return {
@@ -267,16 +270,17 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // Create table in project schema
+  // Create table in project database
   fastify.post('/platform/projects/:projectRef/admin/tables', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const project = request.project!;
+    const projectDb = request.projectDb!;
     const body = createTableSchema.parse(request.body);
 
     if (!isValidIdentifier(body.name)) throw new BadRequestError('Invalid table name');
 
-    const qualifiedName = quoteQualifiedIdentifier(project.schemaName, body.name);
+    const tableName = quoteIdentifier(body.name);
     const columnDefs = body.columns.map((col) => {
       if (!isValidIdentifier(col.name)) throw new BadRequestError(`Invalid column name: ${col.name}`);
       const validatedType = validateColumnType(col.type);
@@ -290,73 +294,71 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       return def;
     });
 
-    const sql = `CREATE TABLE ${qualifiedName} (\n  ${columnDefs.join(',\n  ')}\n)`;
-    await fastify.db.query(sql);
+    const sql = `CREATE TABLE ${tableName} (\n  ${columnDefs.join(',\n  ')}\n)`;
+    await projectDb.query(sql);
 
     if (body.enableRls) {
-      await fastify.db.query(`ALTER TABLE ${qualifiedName} ENABLE ROW LEVEL SECURITY`);
-      await fastify.db.query(`ALTER TABLE ${qualifiedName} FORCE ROW LEVEL SECURITY`);
+      await projectDb.query(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+      await projectDb.query(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
     }
 
-    await fastify.db.query(`GRANT SELECT ON ${qualifiedName} TO anon`);
-    await fastify.db.query(`GRANT ALL ON ${qualifiedName} TO authenticated`);
-    await fastify.db.query(`GRANT ALL ON ${qualifiedName} TO service_role`);
+    await projectDb.query(`GRANT SELECT ON ${tableName} TO anon`);
+    await projectDb.query(`GRANT ALL ON ${tableName} TO authenticated`);
+    await projectDb.query(`GRANT ALL ON ${tableName} TO service_role`);
 
-    invalidateCache(project.schemaName);
+    invalidateCache(project.ref);
 
     // Notify PostgREST to reload schema cache
-    await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
+    await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
 
     reply.status(201);
-    return { message: `Table ${project.schemaName}.${body.name} created`, sql };
+    return { message: `Table ${body.name} created`, sql };
   });
 
-  // Drop table in project schema
+  // Drop table in project database
   fastify.delete('/platform/projects/:projectRef/admin/tables/:table', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { table } = request.params as { table: string; projectRef: string };
     const project = request.project!;
+    const projectDb = request.projectDb!;
 
     if (!isValidIdentifier(table)) {
       throw new BadRequestError('Invalid table name');
     }
 
-    await fastify.db.query(`DROP TABLE ${quoteQualifiedIdentifier(project.schemaName, table)} CASCADE`);
-    invalidateCache(project.schemaName);
+    await projectDb.query(`DROP TABLE ${quoteIdentifier(table)} CASCADE`);
+    invalidateCache(project.ref);
 
     // Notify PostgREST to reload schema cache
-    await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
+    await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
 
-    return { message: `Table ${project.schemaName}.${table} dropped` };
+    return { message: `Table ${table} dropped` };
   });
 
-  // Execute SQL in project schema context
+  // Execute SQL in project database context
   fastify.post('/platform/projects/:projectRef/admin/sql', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const project = request.project!;
+    const projectDb = request.projectDb!;
     const body = sqlQuerySchema.parse(request.body);
     const startTime = Date.now();
 
     try {
-      const client = await fastify.db.connect();
+      const client = await projectDb.connect();
       try {
         await client.query('SET statement_timeout = 30000');
-        await client.query(`SET search_path TO ${quoteIdentifier(project.schemaName)}, public`);
         var result = await client.query(body.query);
       } finally {
         await client.query('RESET statement_timeout');
-        await client.query('RESET search_path');
         client.release();
       }
       const duration = Date.now() - startTime;
-      invalidateCache(project.schemaName);
+      invalidateCache(project.ref);
 
       // Notify PostgREST to reload schema cache (in case DDL was executed)
-      await fastify.db.query(`NOTIFY pgrst, 'reload schema'`).catch(() => {
-        // Ignore errors (e.g., if not in a transaction)
-      });
+      await projectDb.query(`NOTIFY pgrst, 'reload schema'`).catch(() => {});
 
       return {
         rows: result.rows ?? [],
@@ -379,13 +381,12 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get('/platform/projects/:projectRef/admin/users', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
-    const project = request.project!;
+    const projectDb = request.projectDb!;
     const query = request.query as { search?: string; limit?: string; offset?: string };
     const limit = Math.min(parseInt(query.limit ?? '50', 10), 100);
     const offset = parseInt(query.offset ?? '0', 10);
 
-    const usersTable = quoteQualifiedIdentifier(project.schemaName, 'users');
-    let sql = `SELECT id, email, role, email_confirmed, is_disabled, created_at, updated_at, last_sign_in_at FROM ${usersTable}`;
+    let sql = `SELECT id, email, role, email_confirmed, is_disabled, created_at, updated_at, last_sign_in_at FROM "users"`;
     const values: unknown[] = [];
 
     if (query.search) {
@@ -397,13 +398,13 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     sql += ` LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
     values.push(limit, offset);
 
-    const client = await fastify.db.connect();
+    const client = await projectDb.connect();
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE service_role');
       const result = await client.query(sql, values);
 
-      let countSql = `SELECT count(*)::int AS count FROM ${usersTable}`;
+      let countSql = `SELECT count(*)::int AS count FROM "users"`;
       const countValues: unknown[] = [];
       if (query.search) {
         countSql += ' WHERE email ILIKE $1';
@@ -440,7 +441,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post('/platform/projects/:projectRef/admin/users', {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const project = request.project!;
+    const projectDb = request.projectDb!;
     const body = request.body as { email: string; password: string; emailConfirmed?: boolean };
 
     if (!body.email || !body.password) {
@@ -451,8 +452,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       throw new BadRequestError('Password must be at least 8 characters');
     }
 
-    const usersTable = quoteQualifiedIdentifier(project.schemaName, 'users');
-    const client = await fastify.db.connect();
+    const client = await projectDb.connect();
 
     try {
       await client.query('BEGIN');
@@ -460,7 +460,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
       // Check if user already exists
       const existing = await client.query(
-        `SELECT id FROM ${usersTable} WHERE email = $1`,
+        `SELECT id FROM "users" WHERE email = $1`,
         [body.email]
       );
 
@@ -473,7 +473,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       const passwordHash = await hashPassword(body.password);
 
       const result = await client.query(
-        `INSERT INTO ${usersTable} (email, password_hash, role, email_confirmed)
+        `INSERT INTO "users" (email, password_hash, role, email_confirmed)
          VALUES ($1, $2, 'authenticated', $3)
          RETURNING id, email, role, email_confirmed, is_disabled, created_at, updated_at`,
         [body.email, passwordHash, body.emailConfirmed ?? false]
@@ -505,7 +505,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { id } = request.params as { id: string; projectRef: string };
-    const project = request.project!;
+    const projectDb = request.projectDb!;
     const body = request.body as { role?: string; isDisabled?: boolean; password?: string };
 
     const updates: string[] = [];
@@ -537,10 +537,9 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     updates.push(`updated_at = now()`);
     values.push(id);
 
-    const usersTable = quoteQualifiedIdentifier(project.schemaName, 'users');
-    const sql = `UPDATE ${usersTable} SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, role, is_disabled, updated_at`;
+    const sql = `UPDATE "users" SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, role, is_disabled, updated_at`;
 
-    const client = await fastify.db.connect();
+    const client = await projectDb.connect();
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE service_role');
@@ -562,16 +561,14 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const { id } = request.params as { id: string; projectRef: string };
-    const project = request.project!;
+    const projectDb = request.projectDb!;
 
-    const usersTable = quoteQualifiedIdentifier(project.schemaName, 'users');
-
-    const client = await fastify.db.connect();
+    const client = await projectDb.connect();
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE service_role');
       const result = await client.query(
-        `DELETE FROM ${usersTable} WHERE id = $1 RETURNING id`,
+        `DELETE FROM "users" WHERE id = $1 RETURNING id`,
         [id],
       );
       await client.query('COMMIT');
@@ -591,8 +588,9 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     preHandler: [requirePlatformAdmin, resolveProject],
   }, async (request: FastifyRequest) => {
     const project = request.project!;
-    invalidateCache(project.schemaName);
-    const tables = await introspectSchema(fastify.db, project.schemaName);
+    const projectDb = request.projectDb!;
+    invalidateCache(project.ref);
+    const tables = await introspectSchema(projectDb, 'public', project.ref);
     return { message: 'Schema cache refreshed', tableCount: tables.size };
   });
 
@@ -730,6 +728,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
   }, async (request: FastifyRequest) => {
     const body = applyMigrationsSchema.parse(request.body);
     const project = request.project!;
+    const projectDb = request.projectDb!;
 
     const applied: string[] = [];
     const failed: Array<{ name: string; error: string }> = [];
@@ -766,22 +765,19 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
         continue;
       }
 
-      // Apply migration in transaction
-      const client = await fastify.db.connect();
+      // Apply migration in transaction against project database (as superuser, not service_role)
+      const client = await projectDb.connect();
       try {
         await client.query('BEGIN');
-        await client.query('SET LOCAL ROLE service_role');
-        await client.query(`SET search_path TO ${quoteIdentifier(project.schemaName)}, public`);
 
         const startTime = Date.now();
         await client.query(sql);
         const duration = Date.now() - startTime;
 
-        // Reset role to access toph_internal (service_role doesn't have permission)
-        await client.query('RESET ROLE');
+        await client.query('COMMIT');
 
-        // Update status to applied (upsert to ensure row exists)
-        await client.query(
+        // Update status in platform DB
+        await fastify.db.query(
           `INSERT INTO toph_internal.migrations (name, project_id, status, applied_at, applied_by)
            VALUES ($2, $3, 'applied', now(), $1)
            ON CONFLICT (name, project_id)
@@ -789,9 +785,8 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
           [request.platformPayload?.sub, name, project.id]
         );
 
-        await client.query('COMMIT');
-        invalidateCache(project.schemaName);
-        await fastify.db.query(`NOTIFY pgrst, 'reload schema'`);
+        invalidateCache(project.ref);
+        await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
 
         applied.push(name);
 
@@ -799,7 +794,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       } catch (error: any) {
         await client.query('ROLLBACK');
 
-        // Update status to failed
+        // Update status to failed in platform DB
         await fastify.db.query(
           `INSERT INTO toph_internal.migrations (name, project_id, status, error_message)
            VALUES ($1, $2, 'failed', $3)

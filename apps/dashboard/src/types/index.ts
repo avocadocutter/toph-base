@@ -2,7 +2,7 @@ export interface Project {
   id: string;
   ref: string;
   name: string;
-  schemaName: string;
+  dbName: string;
   jwtSecret?: string;
   status: string;
   publishableKey?: string;

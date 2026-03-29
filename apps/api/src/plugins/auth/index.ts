@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { authenticatePlatform } from '../../hooks/authenticate.js';
 import { authenticateProject } from '../../hooks/authenticate.js';
@@ -8,7 +8,7 @@ import { platformSigninHandler, platformRefreshHandler, platformSignoutHandler, 
 import { projectSignupHandler, projectSigninHandler, projectRefreshHandler, projectSignoutHandler, projectMeHandler } from './project-handlers.js';
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveProject = createProjectResolver(fastify.db);
+  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
 
   // Strict rate limit for signup/signin (prevent brute force)
   const strictAuthRateLimit = {

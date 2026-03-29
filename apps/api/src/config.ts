@@ -37,6 +37,11 @@ const configSchema = z.object({
     healthCheckIntervalMs: z.coerce.number().default(30000),
     healthCheckTimeoutMs: z.coerce.number().default(5000),
   }),
+  poolManager: z.object({
+    maxPools: z.coerce.number().default(50),
+    idleEvictionMs: z.coerce.number().default(300000),
+    projectPoolSize: z.coerce.number().default(5),
+  }),
   publicApiUrl: z.string().url().optional(),
 });
 
@@ -80,6 +85,11 @@ export function loadConfig(): Config {
     postgrest: {
       healthCheckIntervalMs: env.POSTGREST_HEALTH_CHECK_INTERVAL_MS,
       healthCheckTimeoutMs: env.POSTGREST_HEALTH_CHECK_TIMEOUT_MS,
+    },
+    poolManager: {
+      maxPools: env.POOL_MANAGER_MAX_POOLS,
+      idleEvictionMs: env.POOL_MANAGER_IDLE_EVICTION_MS,
+      projectPoolSize: env.POOL_MANAGER_PROJECT_POOL_SIZE,
     },
     publicApiUrl: env.PUBLIC_API_URL,
   });

@@ -239,20 +239,20 @@ export function SettingsPage() {
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Database Schema:</span>
+              <span className="text-xs text-muted-foreground">Database Name:</span>
               <code className="rounded bg-muted px-2 py-1 text-xs font-mono">
-                {currentProject.schemaName}
+                {currentProject.dbName}
               </code>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(currentProject.schemaName);
-                  setCopiedId('schema-name');
+                  navigator.clipboard.writeText(currentProject.dbName);
+                  setCopiedId('db-name');
                   setTimeout(() => setCopiedId(null), 2000);
                 }}
                 className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                 title="Copy schema name"
               >
-                {copiedId === 'schema-name' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                {copiedId === 'db-name' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
               </button>
             </div>
           </div>
@@ -296,21 +296,21 @@ export function SettingsPage() {
           {/* Configuration Values */}
           <div className="space-y-3">
             <div className="space-y-1">
-              <span className="text-xs text-muted-foreground">Database Schema</span>
+              <span className="text-xs text-muted-foreground">Database Name</span>
               <div className="flex items-center gap-2">
                 <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
-                  {currentProject.schemaName}
+                  {currentProject.dbName}
                 </code>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(currentProject.schemaName);
-                    setCopiedId('postgrest-schema');
+                    navigator.clipboard.writeText(currentProject.dbName);
+                    setCopiedId('postgrest-db');
                     setTimeout(() => setCopiedId(null), 2000);
                   }}
                   className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                   title="Copy schema name"
                 >
-                  {copiedId === 'postgrest-schema' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  {copiedId === 'postgrest-db' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                 </button>
               </div>
             </div>
@@ -345,7 +345,7 @@ export function SettingsPage() {
                   </code>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(projectDetail.data.jwtSecret);
+                      navigator.clipboard.writeText(projectDetail.data.jwtSecret!);
                       setCopiedId('jwt-secret');
                       setTimeout(() => setCopiedId(null), 2000);
                     }}
@@ -437,8 +437,8 @@ export function SettingsPage() {
             <div><strong>Example docker command:</strong></div>
             <code className="block whitespace-pre-wrap break-all">
               docker run --rm -p 3000:3000 \{'\n'}
-              {`  -e PGRST_DB_URI="postgres://authenticator:changeme@host.docker.internal:5432/toph" \\`}{'\n'}
-              {`  -e PGRST_DB_SCHEMAS="${currentProject.schemaName}" \\`}{'\n'}
+              {`  -e PGRST_DB_URI="postgres://authenticator:changeme@host.docker.internal:5432/${currentProject.dbName}" \\`}{'\n'}
+              {`  -e PGRST_DB_SCHEMAS="public" \\`}{'\n'}
               {`  -e PGRST_DB_ANON_ROLE="anon" \\`}{'\n'}
               {projectDetail.data?.jwtSecret && `  -e PGRST_JWT_SECRET="${projectDetail.data.jwtSecret}" \\`}{'\n'}
               {`  postgrest/postgrest`}
