@@ -39,8 +39,31 @@ create table user_progress (
 
 create index on user_progress(user_id, course_slug);
 
--- RLS enabled but all access goes through service-role (bypasses RLS)
--- Policies defined as defense-in-depth if anon key ever leaks
+-- ── RLS ──────────────────────────────────────────────────────────────────────
 alter table profiles         enable row level security;
 alter table sandbox_sessions enable row level security;
 alter table user_progress    enable row level security;
+
+grant select, insert, update, delete on table profiles         to anon, authenticated, service_role;
+grant select, insert, update, delete on table sandbox_sessions to anon, authenticated, service_role;
+grant select, insert, update, delete on table user_progress    to anon, authenticated, service_role;
+
+-- profiles: insert handled by backend on first sign-in (service_role)
+create policy "users can read own profile"
+  on profiles for select using (id = auth.uid());
+create policy "users can update own profile"
+  on profiles for update using (id = auth.uid());
+
+create policy "users can read own sandbox sessions"
+  on sandbox_sessions for select using (user_id = auth.uid());
+create policy "users can insert own sandbox sessions"
+  on sandbox_sessions for insert with check (user_id = auth.uid());
+create policy "users can update own sandbox sessions"
+  on sandbox_sessions for update using (user_id = auth.uid());
+
+create policy "users can read own progress"
+  on user_progress for select using (user_id = auth.uid());
+create policy "users can insert own progress"
+  on user_progress for insert with check (user_id = auth.uid());
+create policy "users can update own progress"
+  on user_progress for update using (user_id = auth.uid());

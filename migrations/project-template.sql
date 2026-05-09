@@ -5,20 +5,44 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Helper functions for RLS policies
-CREATE OR REPLACE FUNCTION auth_uid() RETURNS uuid AS $$
-  SELECT COALESCE(
-    current_setting('request.jwt.claims', true)::json->>'sub',
-    '00000000-0000-0000-0000-000000000000'
-  )::uuid;
-$$ LANGUAGE sql STABLE;
+-- Auth schema — mirrors Supabase's auth schema so migrations written for Supabase
+-- work locally without changes. Backed by the request.jwt.claims session variable
+-- that executeWithRlsContext sets before every query.
+CREATE SCHEMA IF NOT EXISTS auth;
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 
-CREATE OR REPLACE FUNCTION auth_role() RETURNS text AS $$
-  SELECT COALESCE(
-    current_setting('request.jwt.claims', true)::json->>'role',
-    'anon'
-  );
-$$ LANGUAGE sql STABLE;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb
+  LANGUAGE sql STABLE
+  AS $$
+    SELECT COALESCE(current_setting('request.jwt.claims', true)::jsonb, '{}'::jsonb)
+  $$;
+
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS text
+  LANGUAGE sql STABLE
+  AS $$
+    SELECT NULLIF(auth.jwt() ->> 'sub', '')
+  $$;
+
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text
+  LANGUAGE sql STABLE
+  AS $$
+    SELECT NULLIF(auth.jwt() ->> 'role', '')
+  $$;
+
+CREATE OR REPLACE FUNCTION auth.email() RETURNS text
+  LANGUAGE sql STABLE
+  AS $$
+    SELECT NULLIF(auth.jwt() ->> 'email', '')
+  $$;
+
+-- Unqualified aliases kept for backward compatibility with existing policies
+CREATE OR REPLACE FUNCTION auth_uid() RETURNS text
+  LANGUAGE sql STABLE
+  AS $$ SELECT auth.uid() $$;
+
+CREATE OR REPLACE FUNCTION auth_role() RETURNS text
+  LANGUAGE sql STABLE
+  AS $$ SELECT auth.role() $$;
 
 -- Create roles if they don't exist (ignore errors if they already exist on the cluster)
 DO $$

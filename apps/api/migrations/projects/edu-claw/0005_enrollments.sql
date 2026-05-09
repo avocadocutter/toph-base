@@ -17,6 +17,11 @@ create index on user_enrollments(user_id);
 create index on user_enrollments(user_id, course_slug);
 
 alter table user_enrollments enable row level security;
+grant select, insert, update, delete on table user_enrollments to anon, authenticated, service_role;
+
+-- Enrollment is created by the payment flow (service_role); users read only.
+create policy "users can read own enrollments"
+  on user_enrollments for select using (user_id = auth.uid());
 
 -- Backfill: enroll existing users in courses where they already have progress.
 insert into user_enrollments (user_id, course_slug, payment_status, price_paid)
