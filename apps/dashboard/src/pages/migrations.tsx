@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ColumnDef } from '@tanstack/react-table';
-import { Plus, Play, Trash2, Eye, Download } from 'lucide-react';
+import { Plus, Play, Trash2, Download, RotateCcw } from 'lucide-react';
 import { DataTable } from '../components/data-table/data-table';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -123,11 +123,11 @@ export function MigrationsPage() {
 
   const toggleAll = () => {
     if (!data?.data) return;
-    const pendingMigrations = data.data.filter(m => m.status === 'pending');
-    if (selectedMigrations.size === pendingMigrations.length) {
+    const retryableMigrations = data.data.filter(m => m.status === 'pending' || m.status === 'failed');
+    if (selectedMigrations.size === retryableMigrations.length) {
       setSelectedMigrations(new Set());
     } else {
-      setSelectedMigrations(new Set(pendingMigrations.map(m => m.name)));
+      setSelectedMigrations(new Set(retryableMigrations.map(m => m.name)));
     }
   };
 
@@ -138,14 +138,14 @@ export function MigrationsPage() {
         <Checkbox
           checked={selectedMigrations.size > 0}
           onCheckedChange={toggleAll}
-          disabled={!data?.data.some(m => m.status === 'pending')}
+          disabled={!data?.data.some(m => m.status === 'pending' || m.status === 'failed')}
         />
       ),
       cell: ({ row }) => (
         <Checkbox
           checked={selectedMigrations.has(row.original.name)}
           onCheckedChange={() => toggleMigration(row.original.name)}
-          disabled={row.original.status !== 'pending'}
+          disabled={row.original.status === 'applied'}
         />
       ),
     },
@@ -153,7 +153,12 @@ export function MigrationsPage() {
       accessorKey: 'name',
       header: 'Migration',
       cell: ({ row }) => (
-        <div className="font-mono text-sm font-medium">{row.original.name}</div>
+        <div className="space-y-0.5">
+          <div className="font-mono text-sm font-medium">{row.original.name}</div>
+          {row.original.errorMessage && (
+            <div className="font-mono text-xs text-destructive">{row.original.errorMessage}</div>
+          )}
+        </div>
       ),
     },
     {
@@ -186,11 +191,23 @@ export function MigrationsPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          {row.original.status === 'pending' && (
+        <div className="flex items-center gap-2 justify-end">
+          {row.original.status === 'failed' && (
             <Button
               variant="ghost"
               size="sm"
+              title="Retry migration"
+              onClick={() => applyMutation.mutate([row.original.name])}
+              disabled={applyMutation.isPending}
+            >
+              <RotateCcw size={14} />
+            </Button>
+          )}
+          {(row.original.status === 'pending' || row.original.status === 'failed') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Delete migration"
               onClick={() => deleteMutation.mutate(row.original.name)}
               disabled={deleteMutation.isPending}
             >
@@ -235,8 +252,13 @@ export function MigrationsPage() {
       </div>
 
       {data && data.pendingCount > 0 && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm">
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30 p-3 text-sm">
           <strong>{data.pendingCount}</strong> pending migration(s) waiting to be applied
+        </div>
+      )}
+      {data && data.data.some(m => m.status === 'failed') && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <strong>{data.data.filter(m => m.status === 'failed').length}</strong> migration(s) failed
         </div>
       )}
 

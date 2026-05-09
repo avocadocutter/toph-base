@@ -159,6 +159,18 @@ async function main() {
       return;
     }
 
+    // @fastify/rate-limit errors
+    const fastifyError = error as Error & { statusCode?: number };
+    if (fastifyError.statusCode === 429) {
+      reply.status(429).send({
+        error: {
+          code: 'RATE_LIMITED',
+          message: error.message,
+        },
+      });
+      return;
+    }
+
     request.log.error(error);
     reply.status(500).send({
       error: {

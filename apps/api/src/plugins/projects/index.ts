@@ -12,7 +12,7 @@ import { BadRequestError, NotFoundError } from '../../lib/errors.js';
 import { z } from 'zod';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const createProjectSchema = z.object({
@@ -181,18 +181,22 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       await fastify.db.query(`CREATE DATABASE ${quoteIdentifier(dbName)}`);
 
       // Initialize the project database with the template
-      const templatePath = join(process.cwd(), 'migrations', 'project-template.sql');
+      const templatePath = join(dirname(fileURLToPath(import.meta.url)), '../../../../../migrations', 'project-template.sql');
       const templateSql = await readFile(templatePath, 'utf-8');
       const projectPool = poolManager.getProjectPool(dbName);
       await projectPool.query(templateSql);
     } catch (error) {
-      // Mark project as provisioning_failed
-      await fastify.db.query(
-        `UPDATE toph_internal.projects SET status = 'provisioning_failed', updated_at = now() WHERE id = $1`,
-        [project.id],
-      );
       fastify.log.error({ error, dbName, ref }, 'Failed to provision project database');
-      throw new BadRequestError('Failed to provision project database');
+      await fastify.db
+        .query(
+          `UPDATE toph_internal.projects SET status = 'provisioning_failed', updated_at = now() WHERE id = $1`,
+          [project.id],
+        )
+        .catch((updateErr) => {
+          fastify.log.error({ error: updateErr }, 'Failed to mark project as provisioning_failed');
+        });
+      const message = error instanceof Error ? error.message : 'Failed to provision project database';
+      throw new BadRequestError(`Failed to provision project database: ${message}`);
     }
 
     // Register PostgREST instance if URL was provided

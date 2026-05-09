@@ -436,12 +436,17 @@ export function SettingsPage() {
           <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
             <div><strong>Example docker command:</strong></div>
             <code className="block whitespace-pre-wrap break-all">
-              docker run --rm -p 3000:3000 \{'\n'}
-              {`  -e PGRST_DB_URI="postgres://authenticator:changeme@host.docker.internal:5432/${currentProject.dbName}" \\`}{'\n'}
-              {`  -e PGRST_DB_SCHEMAS="public" \\`}{'\n'}
-              {`  -e PGRST_DB_ANON_ROLE="anon" \\`}{'\n'}
-              {projectDetail.data?.jwtSecret && `  -e PGRST_JWT_SECRET="${projectDetail.data.jwtSecret}" \\`}{'\n'}
-              {`  postgrest/postgrest`}
+              {(() => {
+                const hostPort = projectDetail.data?.postgrestUrl
+                  ? new URL(projectDetail.data.postgrestUrl).port || '3000'
+                  : '3000';
+                return `docker run --rm -p ${hostPort}:3000 \\\n` +
+                  `  -e PGRST_DB_URI="postgres://authenticator:changeme@host.docker.internal:5432/${currentProject.dbName}" \\\n` +
+                  `  -e PGRST_DB_SCHEMAS="public" \\\n` +
+                  `  -e PGRST_DB_ANON_ROLE="anon" \\\n` +
+                  (projectDetail.data?.jwtSecret ? `  -e PGRST_JWT_SECRET="${projectDetail.data.jwtSecret}" \\\n` : '') +
+                  `  postgrest/postgrest`;
+              })()}
             </code>
           </div>
         </section>
