@@ -11,6 +11,7 @@ import { createApikeyResolver } from './hooks/resolve-project-from-apikey.js';
 import { createProjectResolver } from './hooks/resolve-project.js';
 import { hashPassword } from './plugins/auth/password.js';
 import { AppError } from './lib/errors.js';
+import multipart from '@fastify/multipart';
 import authPlugin from './plugins/auth/index.js';
 import introspectionPlugin from './plugins/introspection/index.js';
 import restApiPlugin from './plugins/rest-api/index.js';
@@ -53,6 +54,8 @@ async function main() {
   initPlatformJwt(config);
 
   // Register global plugins
+  await fastify.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
+
   await fastify.register(cors, {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)

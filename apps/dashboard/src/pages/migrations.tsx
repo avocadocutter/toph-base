@@ -1,23 +1,41 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ColumnDef } from '@tanstack/react-table';
-import { Plus, Play, Trash2, Download, RotateCcw } from 'lucide-react';
+import { Plus, Play, Trash2, Download, RotateCcw, Upload } from 'lucide-react';
 import { DataTable } from '../components/data-table/data-table';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Checkbox } from '../components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../components/ui/dialog';
 import { api, projectAdminPath } from '../lib/api-client';
 import { useProjectStore } from '../stores/project-store';
 import { useAuthStore } from '../stores/auth-store';
 import { toast } from 'sonner';
 import type { Migration, MigrationListResponse, ApplyMigrationsResponse } from '../types';
 
+type CollisionInfo = { name: string; status: string };
+
+type UploadDialogState =
+  | null
+  | { type: 'applied'; collisions: CollisionInfo[] }
+  | { type: 'pending'; collisions: CollisionInfo[]; files: File[] };
+
 export function MigrationsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentProject = useProjectStore((s) => s.currentProject);
   const [selectedMigrations, setSelectedMigrations] = useState<Set<string>>(new Set());
+  const [uploadDialog, setUploadDialog] = useState<UploadDialogState>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch migrations
   const { data, isLoading } = useQuery({
@@ -109,6 +127,62 @@ export function MigrationsPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to download migrations');
     }
+  };
+
+  const uploadFiles = async (files: File[], replace = false) => {
+    if (!currentProject) return;
+    setIsUploading(true);
+    try {
+      const token = useAuthStore.getState().accessToken;
+      const formData = new FormData();
+      if (replace) formData.append('replace', 'true');
+      for (const file of files) formData.append('files', file);
+
+      const response = await fetch(`/platform/projects/${currentProject.ref}/admin/migrations/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+        return;
+      }
+
+      const body = await response.json();
+
+      if (!response.ok) {
+        const code = body.error?.code;
+        const collisions: CollisionInfo[] = body.error?.details?.collisions ?? [];
+
+        if (code === 'APPLIED_COLLISION') {
+          setUploadDialog({ type: 'applied', collisions });
+          return;
+        }
+        if (code === 'PENDING_COLLISION') {
+          setUploadDialog({ type: 'pending', collisions, files });
+          return;
+        }
+        toast.error(body.error?.message ?? 'Upload failed');
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['admin-migrations'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-tables'] });
+      toast.success(body.message);
+      setUploadDialog(null);
+    } catch {
+      toast.error('Upload failed');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) uploadFiles(files);
   };
 
   const toggleMigration = (name: string) => {
@@ -244,6 +318,22 @@ export function MigrationsPage() {
             <Download size={14} />
             Download All
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+          >
+            <Upload size={14} />
+            {isUploading ? 'Uploading…' : 'Upload'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".sql,.zip"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
           <Button onClick={() => navigate('/migrations/new')}>
             <Plus size={14} />
             New Migration
@@ -252,7 +342,7 @@ export function MigrationsPage() {
       </div>
 
       {data && data.pendingCount > 0 && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30 p-3 text-sm">
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30 p-3 text-sm text-yellow-900 dark:text-yellow-200">
           <strong>{data.pendingCount}</strong> pending migration(s) waiting to be applied
         </div>
       )}
@@ -263,6 +353,65 @@ export function MigrationsPage() {
       )}
 
       <DataTable columns={columns} data={data?.data || []} loading={isLoading} />
+
+      {/* Applied collision — hard block */}
+      <Dialog open={uploadDialog?.type === 'applied'} onOpenChange={() => setUploadDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload blocked</DialogTitle>
+            <DialogDescription>
+              The following migrations have already been applied to the database and cannot be
+              replaced. Remove them from your upload or choose different filenames.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 overflow-y-auto rounded border p-2 text-sm space-y-1">
+            {uploadDialog?.type === 'applied' && uploadDialog.collisions.map(c => (
+              <li key={c.name} className="flex items-center justify-between gap-4 font-mono">
+                <span>{c.name}</span>
+                <Badge variant="default">applied</Badge>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button onClick={() => setUploadDialog(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pending collision — confirm replace */}
+      <Dialog open={uploadDialog?.type === 'pending'} onOpenChange={() => setUploadDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replace existing migrations?</DialogTitle>
+            <DialogDescription>
+              The following migrations already exist and are still pending. Replacing them will
+              overwrite their content and reset their status to pending.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 overflow-y-auto rounded border p-2 text-sm space-y-1">
+            {uploadDialog?.type === 'pending' && uploadDialog.collisions.map(c => (
+              <li key={c.name} className="flex items-center justify-between gap-4 font-mono">
+                <span>{c.name}</span>
+                <Badge variant="secondary">{c.status}</Badge>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadDialog(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={isUploading}
+              onClick={() => {
+                if (uploadDialog?.type === 'pending') {
+                  uploadFiles(uploadDialog.files, true);
+                }
+              }}
+            >
+              Replace All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,10 +5,12 @@ import { introspectSchema, invalidateCache } from '../introspection/inspector.js
 import { quoteIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
-import { BadRequestError, NotFoundError, ConflictError } from '../../lib/errors.js';
+import { AppError, BadRequestError, NotFoundError, ConflictError } from '../../lib/errors.js';
 import { readFile, writeFile, mkdir, readdir, access, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import archiver from 'archiver';
+import { unzipSync } from 'fflate';
+import '@fastify/multipart';
 
 const createTableSchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid table name'),
@@ -855,6 +857,127 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     await archive.finalize();
 
     return reply;
+  });
+
+  // Upload migrations (.sql files or a .zip containing .sql files)
+  fastify.post('/platform/projects/:projectRef/admin/migrations/upload', {
+    preHandler: [requirePlatformAdmin, resolveProject],
+  }, async (request: FastifyRequest) => {
+    const project = request.project!;
+
+    let replace = false;
+    const sqlFiles: Array<{ name: string; content: string }> = [];
+
+    for await (const part of request.parts()) {
+      if (part.type === 'field') {
+        if (part.fieldname === 'replace' && (part as { value: string }).value === 'true') {
+          replace = true;
+        }
+        continue;
+      }
+
+      const filePart = part as { filename?: string; toBuffer: () => Promise<Buffer> };
+      const buffer = await filePart.toBuffer();
+      const filename = filePart.filename ?? '';
+
+      if (filename.endsWith('.zip')) {
+        let unzipped: ReturnType<typeof unzipSync>;
+        try {
+          unzipped = unzipSync(buffer);
+        } catch {
+          throw new BadRequestError('Invalid or corrupt zip file');
+        }
+        for (const [path, data] of Object.entries(unzipped)) {
+          const basename = path.split('/').pop() ?? path;
+          if (!basename.endsWith('.sql')) continue;
+          if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(basename)) continue;
+          sqlFiles.push({ name: basename, content: new TextDecoder().decode(data) });
+        }
+      } else if (filename.endsWith('.sql')) {
+        const name = filename.split('/').pop() ?? filename;
+        if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(name)) {
+          throw new BadRequestError(`Invalid filename: ${name}`);
+        }
+        sqlFiles.push({ name, content: buffer.toString('utf-8') });
+      }
+    }
+
+    if (sqlFiles.length === 0) {
+      throw new BadRequestError('No valid .sql files found in upload');
+    }
+
+    // Deduplicate: last occurrence wins
+    const deduped = new Map<string, string>();
+    for (const f of sqlFiles) deduped.set(f.name, f.content);
+    const files = Array.from(deduped.entries()).map(([name, content]) => ({ name, content }));
+
+    const projectMigrationsDir = join(process.cwd(), 'migrations', 'projects', project.ref);
+    await mkdir(projectMigrationsDir, { recursive: true });
+
+    // Detect collisions
+    const collisions: Array<{ name: string; status: string }> = [];
+    for (const file of files) {
+      const filePath = join(projectMigrationsDir, file.name);
+      try {
+        await access(filePath);
+      } catch {
+        continue; // file doesn't exist
+      }
+      const { rows } = await fastify.db.query<{ status: string }>(
+        'SELECT status FROM toph_internal.migrations WHERE name = $1 AND project_id = $2',
+        [file.name, project.id],
+      );
+      collisions.push({ name: file.name, status: rows[0]?.status ?? 'pending' });
+    }
+
+    if (collisions.length > 0) {
+      const appliedCollisions = collisions.filter(c => c.status === 'applied');
+      if (appliedCollisions.length > 0) {
+        throw new AppError(409, 'APPLIED_COLLISION',
+          `${appliedCollisions.length} migration(s) have already been applied and cannot be replaced`,
+          { collisions },
+        );
+      }
+      if (!replace) {
+        throw new AppError(409, 'PENDING_COLLISION',
+          `${collisions.length} migration(s) already exist`,
+          { collisions },
+        );
+      }
+    }
+
+    const imported: string[] = [];
+    const replaced: string[] = [];
+
+    for (const file of files) {
+      const filePath = join(projectMigrationsDir, file.name);
+      await writeFile(filePath, file.content, 'utf-8');
+
+      const isCollision = collisions.find(c => c.name === file.name);
+      if (isCollision) {
+        await fastify.db.query(
+          `UPDATE toph_internal.migrations
+           SET status = 'pending', applied_at = NULL, applied_by = NULL, error_message = NULL
+           WHERE name = $1 AND project_id = $2`,
+          [file.name, project.id],
+        );
+        replaced.push(file.name);
+      } else {
+        await fastify.db.query(
+          `INSERT INTO toph_internal.migrations (name, project_id, status) VALUES ($1, $2, 'pending')
+           ON CONFLICT (name, project_id) DO UPDATE
+           SET status = 'pending', applied_at = NULL, applied_by = NULL, error_message = NULL`,
+          [file.name, project.id],
+        );
+        imported.push(file.name);
+      }
+    }
+
+    return {
+      message: `Imported ${imported.length} migration(s)${replaced.length > 0 ? `, replaced ${replaced.length}` : ''}`,
+      imported,
+      replaced,
+    };
   });
 };
 
