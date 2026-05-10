@@ -6,7 +6,9 @@ import fastifyStatic from '@fastify/static';
 import { loadConfig } from './config.js';
 import { ProjectPoolManager } from './db/pool-manager.js';
 import { initPlatformJwt } from './plugins/auth/jwt.js';
-import { authenticatePlatform } from './hooks/authenticate.js';
+import { authenticatePlatform, authenticateProject, authenticateProjectOptional } from './hooks/authenticate.js';
+import { createApikeyResolver } from './hooks/resolve-project-from-apikey.js';
+import { createProjectResolver } from './hooks/resolve-project.js';
 import { hashPassword } from './plugins/auth/password.js';
 import { AppError } from './lib/errors.js';
 import authPlugin from './plugins/auth/index.js';
@@ -175,7 +177,11 @@ async function main() {
   await fastify.register(authPlugin);
   await fastify.register(projectsPlugin);
   await fastify.register(apiKeysPlugin);
-  await fastify.register(restApiPlugin);
+  await fastify.register(restApiPlugin, {
+    resolveFromApikey: createApikeyResolver(db, poolManager),
+    resolveProject:    createProjectResolver(db, poolManager),
+    authHook:          config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional,
+  });
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
 

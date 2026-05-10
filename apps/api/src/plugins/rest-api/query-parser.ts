@@ -1,3 +1,19 @@
+/**
+ * query-parser.ts
+ *
+ * Converts PostgREST-style HTTP query params into a structured ParsedQuery object.
+ * This is a pure transformation step — no SQL, no DB access.
+ *
+ * To add a new filter operator:
+ *   1. Add the string to VALID_OPERATORS below.
+ *   2. Handle it in buildWhereClause() in query-builder.ts.
+ *
+ * To add a new query feature (e.g. OR filters, not-modifier):
+ *   1. Add a field to ParsedQuery.
+ *   2. Parse it in parseQueryParams().
+ *   3. Consume it in query-builder.ts.
+ */
+
 type FilterOperator =
   | 'eq' | 'neq'
   | 'gt' | 'gte' | 'lt' | 'lte'
@@ -27,6 +43,7 @@ export interface ParsedQuery {
   order: ParsedOrder[];
   limit: number | null;
   offset: number;
+  onConflict: string[] | null; // columns to use as ON CONFLICT target for upserts
 }
 
 export function parseQueryParams(querystring: Record<string, string | undefined>): ParsedQuery {
@@ -36,6 +53,7 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     order: [],
     limit: null,
     offset: 0,
+    onConflict: null,
   };
 
   // Parse select
@@ -65,8 +83,13 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     });
   }
 
+  // Parse on_conflict (comma-separated column names for upsert conflict target)
+  if (querystring.on_conflict) {
+    parsed.onConflict = querystring.on_conflict.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
   // Parse filters (any querystring key that has operator syntax: column=op.value)
-  const reservedKeys = new Set(['select', 'order', 'limit', 'offset']);
+  const reservedKeys = new Set(['select', 'order', 'limit', 'offset', 'on_conflict']);
   for (const [key, rawValue] of Object.entries(querystring)) {
     if (reservedKeys.has(key) || !rawValue) continue;
 

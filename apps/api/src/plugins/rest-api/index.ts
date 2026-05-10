@@ -10,15 +10,62 @@ import {
   buildDeleteQuery,
 } from './query-builder.js';
 import { executeWithRlsContext } from './rls-context.js';
-import { createApikeyResolver } from '../../hooks/resolve-project-from-apikey.js';
-import { authenticateProject, authenticateProjectOptional } from '../../hooks/authenticate.js';
-import { createProjectResolver } from '../../hooks/resolve-project.js';
 import { NotFoundError, BadRequestError } from '../../lib/errors.js';
 
+// ── Public plugin contract ────────────────────────────────────────────────────
+
+/**
+ * Hook signature shared by all pre-handler hooks in this plugin.
+ * Each hook must populate `request.project` and `request.projectDb` before
+ * the route handler runs. It may also populate `request.jwtPayload` for RLS.
+ */
+export type RestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+
+/**
+ * Dependency-injected options for the REST API plugin.
+ *
+ * All auth/project-resolution logic lives OUTSIDE this plugin.
+ * Pass in hooks built from the rest of the codebase so that this
+ * plugin can be changed or replaced without touching auth code.
+ *
+ * @example
+ * await fastify.register(restApiPlugin, {
+ *   resolveFromApikey: createApikeyResolver(db, poolManager),
+ *   resolveProject:    createProjectResolver(db, poolManager),
+ *   authHook:          config.features.requireAuthForApi
+ *                        ? authenticateProject
+ *                        : authenticateProjectOptional,
+ * });
+ */
+export interface RestApiPluginOptions {
+  /**
+   * Resolves project + auth from the `apikey` request header.
+   * Used by Supabase-compatible routes (`/rest/v1/:table`).
+   * Must set `request.project`, `request.projectDb`, and `request.jwtPayload`.
+   */
+  resolveFromApikey: RestHook;
+
+  /**
+   * Resolves project from URL params (`/project/:projectRef/...`) or
+   * the request subdomain. Used by project-scoped admin routes.
+   * Must set `request.project` and `request.projectDb`.
+   */
+  resolveProject: RestHook;
+
+  /**
+   * Authenticates the request user via Bearer JWT.
+   * Runs after `resolveProject` on project-scoped routes.
+   * Must set `request.jwtPayload` on success.
+   */
+  authHook: RestHook;
+}
+
+// ── Prefer header parsing ─────────────────────────────────────────────────────
+
 interface Prefer {
-  count?: string;
-  return?: string;
-  resolution?: string;
+  count?: string;      // 'exact' | 'planned' | 'estimated'
+  return?: string;     // 'representation' | 'minimal' | 'headers-only'
+  resolution?: string; // 'merge-duplicates' | 'ignore-duplicates'
 }
 
 function parsePrefer(header: string | undefined): Prefer {
@@ -30,6 +77,9 @@ function parsePrefer(header: string | undefined): Prefer {
   }
   return result;
 }
+
+// ── Shared route handlers ─────────────────────────────────────────────────────
+// These are reused across both route families (apikey routes and project-ref routes).
 
 async function handleGet(request: FastifyRequest, reply: FastifyReply) {
   const { table: tableName } = request.params as { table: string };
@@ -79,6 +129,7 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply) {
   const table = tables.get(tableName);
   if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
+  const parsed = parseQueryParams(request.query as Record<string, string>);
   const body = request.body;
   if (body === null || body === undefined) throw new BadRequestError('Request body is required');
 
@@ -88,7 +139,7 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply) {
 
   const isUpsert = prefer.resolution === 'merge-duplicates' || prefer.resolution === 'ignore-duplicates';
   const query = isUpsert
-    ? buildUpsertQuery(table, rows, prefer.resolution === 'ignore-duplicates')
+    ? buildUpsertQuery(table, rows, prefer.resolution === 'ignore-duplicates', parsed.onConflict)
     : buildInsertQuery(table, rows);
 
   const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
@@ -148,22 +199,25 @@ async function handleDelete(request: FastifyRequest, reply: FastifyReply) {
   return reply.send(result.rows);
 }
 
-const restApiPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveFromApikey = createApikeyResolver(fastify.db, fastify.projectPoolManager);
-  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
-  const authHook = fastify.config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional;
+// ── Plugin registration ───────────────────────────────────────────────────────
 
-  // Supabase-compatible routes — apikey header auth, subdomain project routing.
-  // This is what the Supabase JS client calls: {ref}.host/rest/v1/{table}
-  fastify.get('/rest/v1/:table', { preHandler: [resolveFromApikey] }, handleGet);
-  fastify.post('/rest/v1/:table', { preHandler: [resolveFromApikey] }, handlePost);
-  fastify.patch('/rest/v1/:table', { preHandler: [resolveFromApikey] }, handlePatch);
+const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, opts) => {
+  const { resolveFromApikey, resolveProject, authHook } = opts;
+
+  // ── Supabase-compatible routes ───────────────────────────────────────────
+  // Auth and project are resolved from the `apikey` request header.
+  // The Supabase JS client hits these: {project-ref}.host/rest/v1/{table}
+  fastify.get('/rest/v1/:table',    { preHandler: [resolveFromApikey] }, handleGet);
+  fastify.post('/rest/v1/:table',   { preHandler: [resolveFromApikey] }, handlePost);
+  fastify.patch('/rest/v1/:table',  { preHandler: [resolveFromApikey] }, handlePatch);
   fastify.delete('/rest/v1/:table', { preHandler: [resolveFromApikey] }, handleDelete);
 
-  // Project-scoped routes — JWT auth, for admin tooling and server-side access.
-  fastify.get('/project/:projectRef/rest/v1/:table', { preHandler: [resolveProject, authHook] }, handleGet);
-  fastify.post('/project/:projectRef/rest/v1/:table', { preHandler: [resolveProject, authHook] }, handlePost);
-  fastify.patch('/project/:projectRef/rest/v1/:table', { preHandler: [resolveProject, authHook] }, handlePatch);
+  // ── Project-scoped routes ────────────────────────────────────────────────
+  // Project resolved from URL param; auth via Bearer JWT.
+  // Useful for server-side access and admin tooling.
+  fastify.get('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveProject, authHook] }, handleGet);
+  fastify.post('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveProject, authHook] }, handlePost);
+  fastify.patch('/project/:projectRef/rest/v1/:table',  { preHandler: [resolveProject, authHook] }, handlePatch);
   fastify.delete('/project/:projectRef/rest/v1/:table', { preHandler: [resolveProject, authHook] }, handleDelete);
 };
 

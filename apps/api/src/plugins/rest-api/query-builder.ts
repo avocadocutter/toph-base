@@ -1,3 +1,14 @@
+/**
+ * query-builder.ts
+ *
+ * Builds parameterized SQL strings from a ParsedQuery object.
+ * All user input arrives pre-validated; column names are quoted via quoteIdentifier().
+ *
+ * To add a new filter operator: add a case in buildWhereClause().
+ * To add relationship embedding: extend buildSelectQuery() to emit JOINs
+ *   using the TableInfo.foreignKeys data (already fetched by schema introspection).
+ */
+
 import type { ParsedQuery, ParsedFilter, ParsedOrder } from './query-parser.js';
 import type { TableInfo } from '../introspection/types.js';
 import { quoteIdentifier } from '../../lib/sql-helpers.js';
@@ -155,9 +166,26 @@ export function buildInsertQuery(table: TableInfo, rows: Record<string, unknown>
   return { text, values };
 }
 
-export function buildUpsertQuery(table: TableInfo, rows: Record<string, unknown>[], ignoreDuplicates: boolean): BuiltQuery {
+export function buildUpsertQuery(
+  table: TableInfo,
+  rows: Record<string, unknown>[],
+  ignoreDuplicates: boolean,
+  onConflictColumns: string[] | null = null,
+): BuiltQuery {
   if (rows.length === 0) throw new BadRequestError('Cannot upsert empty array');
-  if (table.primaryKey.length === 0) throw new BadRequestError(`Table '${table.name}' has no primary key for upsert`);
+
+  // Conflict target: prefer explicit ?on_conflict columns, fall back to primary key
+  const conflictCols = onConflictColumns && onConflictColumns.length > 0
+    ? onConflictColumns
+    : table.primaryKey;
+
+  if (conflictCols.length === 0) {
+    throw new BadRequestError(
+      `Table '${table.name}' has no primary key. Specify conflict columns via ?on_conflict=col1,col2`,
+    );
+  }
+
+  validateColumns(conflictCols, table);
 
   const qualifiedTable = quoteIdentifier(table.name);
   const keys = Object.keys(rows[0]);
@@ -173,13 +201,13 @@ export function buildUpsertQuery(table: TableInfo, rows: Record<string, unknown>
     values.push(...keys.map(k => row[k]));
   }
 
-  const conflictTarget = table.primaryKey.map(k => quoteIdentifier(k)).join(', ');
+  const conflictTarget = conflictCols.map(k => quoteIdentifier(k)).join(', ');
   let conflictClause: string;
 
   if (ignoreDuplicates) {
     conflictClause = `ON CONFLICT (${conflictTarget}) DO NOTHING`;
   } else {
-    const updateKeys = keys.filter(k => !table.primaryKey.includes(k));
+    const updateKeys = keys.filter(k => !conflictCols.includes(k));
     if (updateKeys.length === 0) {
       conflictClause = `ON CONFLICT (${conflictTarget}) DO NOTHING`;
     } else {

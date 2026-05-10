@@ -1,3 +1,23 @@
+/**
+ * rls-context.ts
+ *
+ * Executes a SQL query inside a transaction with the correct Postgres role and JWT
+ * claims set, so that Row Level Security policies work as expected.
+ *
+ * Transaction flow:
+ *   BEGIN
+ *   SET LOCAL ROLE <role>          -- enforces RLS role boundary
+ *   set_config('request.jwt.claims', ...)  -- full claims JSON (for jsonb operators)
+ *   set_config('request.jwt.claim.sub', ...)   -- auth.uid()
+ *   set_config('request.jwt.claim.role', ...)  -- auth.role()
+ *   set_config('request.jwt.claim.email', ...) -- auth.email()
+ *   <your query>
+ *   COMMIT
+ *
+ * To replace this layer (e.g. different claims format, read-replica routing):
+ * implement a function with the same signature and swap the import in index.ts.
+ */
+
 import type { DbPool } from '../../db/pool.js';
 import type { ProjectJwtPayload } from '../../types/fastify.js';
 import { BadRequestError } from '../../lib/errors.js';
