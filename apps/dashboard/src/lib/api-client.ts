@@ -3,6 +3,15 @@ import { useProjectStore } from '../stores/project-store';
 
 const BASE_URL = '';
 
+export class ApiError extends Error {
+  readonly details?: unknown;
+  constructor(message: string, details?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.details = details;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().accessToken;
 
@@ -27,8 +36,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
-    throw new Error(error.error?.message || `HTTP ${response.status}`);
+    const body = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
+    throw new ApiError(body.error?.message || `HTTP ${response.status}`, body.error?.details);
   }
 
   if (response.status === 204) return undefined as T;

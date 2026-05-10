@@ -18,19 +18,19 @@ const lightTheme = EditorView.theme({
     borderRight: '1px solid var(--color-border)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'var(--color-accent)',
+    backgroundColor: 'oklch(0.93 0.02 250)',
   },
   '.cm-activeLine': {
-    backgroundColor: 'var(--color-accent)',
+    backgroundColor: 'oklch(0.93 0.02 250)',
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--color-foreground)',
   },
   '.cm-selectionBackground': {
-    backgroundColor: 'oklch(0.55 0.15 250 / 0.2) !important',
+    backgroundColor: 'oklch(0.72 0.09 240 / 0.25) !important',
   },
   '&.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'oklch(0.55 0.15 250 / 0.3) !important',
+    backgroundColor: 'oklch(0.72 0.09 240 / 0.35) !important',
   },
 });
 
@@ -75,6 +75,7 @@ export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewR
             '&': { height: '100%', fontSize: '13px' },
             '.cm-scroller': { overflow: 'auto' },
             '.cm-content': { fontFamily: 'inherit' },
+            '.cm-foldGutter': { display: 'none' },
           }),
         ],
       });

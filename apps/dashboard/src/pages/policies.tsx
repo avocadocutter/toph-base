@@ -77,7 +77,10 @@ export function PoliciesPage() {
     {
       accessorKey: 'roles',
       header: 'Roles',
-      cell: ({ row }) => row.original.roles.join(', '),
+      cell: ({ row }) => {
+        const roles = row.original.roles;
+        return Array.isArray(roles) ? roles.join(', ') : String(roles ?? '');
+      },
     },
     {
       accessorKey: 'using',

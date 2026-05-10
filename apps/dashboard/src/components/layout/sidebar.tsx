@@ -27,7 +27,6 @@ const projectItems = [
 ];
 
 const platformItems = [
-  { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/settings', icon: Settings, label: 'Settings' },
   { to: '/docs', icon: BookOpen, label: 'Docs' },
 ];

@@ -76,7 +76,7 @@ const rlsPlugin: FastifyPluginAsync = async (fastify) => {
           WHEN 'd' THEN 'DELETE'
         END AS command,
         pol.polpermissive AS permissive,
-        ARRAY(SELECT rolname FROM pg_roles WHERE oid = ANY(pol.polroles)) AS roles,
+        ARRAY(SELECT rolname::text FROM pg_roles WHERE oid = ANY(pol.polroles))::text[] AS roles,
         pg_get_expr(pol.polqual, pol.polrelid) AS using_expression,
         pg_get_expr(pol.polwithcheck, pol.polrelid) AS with_check_expression
        FROM pg_policy pol
