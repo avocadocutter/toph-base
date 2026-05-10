@@ -10,7 +10,8 @@ import {
   buildDeleteQuery,
 } from './query-builder.js';
 import { executeWithRlsContext } from './rls-context.js';
-import { NotFoundError, BadRequestError } from '../../lib/errors.js';
+import { NotFoundError, BadRequestError, AppError } from '../../lib/errors.js';
+import { quoteIdentifier } from '../../lib/sql-helpers.js';
 
 // ── Public plugin contract ────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ interface Prefer {
   count?: string;      // 'exact' | 'planned' | 'estimated'
   return?: string;     // 'representation' | 'minimal' | 'headers-only'
   resolution?: string; // 'merge-duplicates' | 'ignore-duplicates'
+  missing?: string;    // 'default' → return null (200) instead of 406 when 0 rows (.maybeSingle)
 }
 
 function parsePrefer(header: string | undefined): Prefer {
@@ -76,6 +78,49 @@ function parsePrefer(header: string | undefined): Prefer {
     if (k && v) result[k.trim()] = v.trim();
   }
   return result;
+}
+
+const SINGULAR_CONTENT_TYPE = 'application/vnd.pgrst.object+json';
+
+function isSingularRequest(request: FastifyRequest): boolean {
+  const accept = request.headers['accept'] ?? '';
+  return accept.includes(SINGULAR_CONTENT_TYPE);
+}
+
+function sendSingular(
+  reply: FastifyReply,
+  rows: Record<string, unknown>[],
+  status = 200,
+  missingDefault = false,
+): ReturnType<FastifyReply['send']> {
+  if (rows.length === 0) {
+    if (missingDefault) {
+      // .maybeSingle() — return null with 200 instead of 406
+      return reply.status(200).header('Content-Type', SINGULAR_CONTENT_TYPE).send(null);
+    }
+    throw new AppError(406, 'PGRST116', 'JSON object requested, multiple (or no) rows returned', {
+      details: 'The result contains 0 rows',
+      hint: null,
+    });
+  }
+  if (rows.length > 1) {
+    throw new AppError(406, 'PGRST116', 'JSON object requested, multiple (or no) rows returned', {
+      details: `The result contains ${rows.length} rows`,
+      hint: null,
+    });
+  }
+  return reply.status(status).header('Content-Type', SINGULAR_CONTENT_TYPE).send(rows[0]);
+}
+
+// Parses an HTTP Range header ("0-9") into offset + limit for pagination.
+function parseRangeHeader(header: string | undefined): { offset: number; limit: number } | null {
+  if (!header) return null;
+  const m = header.match(/^(\d+)-(\d+)$/);
+  if (!m) return null;
+  const from = parseInt(m[1], 10);
+  const to   = parseInt(m[2], 10);
+  if (from > to) return null;
+  return { offset: from, limit: to - from + 1 };
 }
 
 // ── Shared route handlers ─────────────────────────────────────────────────────
@@ -92,7 +137,17 @@ async function handleGet(request: FastifyRequest, reply: FastifyReply) {
   if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
-  const selectQuery = buildSelectQuery(table, parsed);
+
+  // Apply Range header when no limit/offset were specified via query params
+  if (parsed.limit === null && parsed.offset === 0) {
+    const range = parseRangeHeader(request.headers['range'] as string | undefined);
+    if (range) {
+      parsed.limit  = range.limit;
+      parsed.offset = range.offset;
+    }
+  }
+
+  const selectQuery = buildSelectQuery(table, parsed, tables);
   const wantCount = prefer.count === 'exact' || prefer.count === 'planned' || prefer.count === 'estimated';
 
   let rows: Record<string, unknown>[];
@@ -116,6 +171,7 @@ async function handleGet(request: FastifyRequest, reply: FastifyReply) {
   const rangeStr = rows.length === 0 ? '*' : `${rangeStart}-${rangeEnd}`;
   reply.header('Content-Range', `${rangeStr}/${total ?? '*'}`);
 
+  if (isSingularRequest(request)) return sendSingular(reply, rows, 200, prefer.missing === 'default');
   return reply.send(rows);
 }
 
@@ -148,8 +204,8 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply) {
     return reply.status(204).send();
   }
 
-  reply.status(201);
-  return reply.send(result.rows);
+  if (isSingularRequest(request)) return sendSingular(reply, result.rows, 201, prefer.missing === 'default');
+  return reply.status(201).send(result.rows);
 }
 
 async function handlePatch(request: FastifyRequest, reply: FastifyReply) {
@@ -168,13 +224,14 @@ async function handlePatch(request: FastifyRequest, reply: FastifyReply) {
   }
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
-  const query = buildUpdateQuery(table, body, parsed.filters);
+  const query = buildUpdateQuery(table, body, parsed.filters, parsed.orFilters);
   const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
   }
 
+  if (isSingularRequest(request)) return sendSingular(reply, result.rows, 200, prefer.missing === 'default');
   return reply.send(result.rows);
 }
 
@@ -189,13 +246,42 @@ async function handleDelete(request: FastifyRequest, reply: FastifyReply) {
   if (!table) throw new NotFoundError(`Table '${tableName}' not found`);
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
-  const query = buildDeleteQuery(table, parsed.filters);
+  const query = buildDeleteQuery(table, parsed.filters, parsed.orFilters);
   const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
   }
 
+  if (isSingularRequest(request)) return sendSingular(reply, result.rows, 200, prefer.missing === 'default');
+  return reply.send(result.rows);
+}
+
+async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
+  const { fn: fnName } = request.params as { fn: string };
+  const projectDb = request.projectDb!;
+  const prefer = parsePrefer(request.headers['prefer'] as string | undefined);
+
+  const body = (request.body ?? {}) as Record<string, unknown>;
+  const args = Object.entries(body);
+
+  const quotedFn = `public.${quoteIdentifier(fnName)}`;
+  let queryText: string;
+  let queryValues: unknown[];
+
+  if (args.length === 0) {
+    queryText  = `SELECT * FROM ${quotedFn}()`;
+    queryValues = [];
+  } else {
+    const argClauses = args.map(([name, _], i) => `${quoteIdentifier(name)} => $${i + 1}`);
+    queryText  = `SELECT * FROM ${quotedFn}(${argClauses.join(', ')})`;
+    queryValues = args.map(([_, v]) => v);
+  }
+
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues);
+
+  if (prefer.return === 'minimal') return reply.status(204).send();
+  if (isSingularRequest(request)) return sendSingular(reply, result.rows, 200, prefer.missing === 'default');
   return reply.send(result.rows);
 }
 
@@ -204,21 +290,45 @@ async function handleDelete(request: FastifyRequest, reply: FastifyReply) {
 const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, opts) => {
   const { resolveFromApikey, resolveProject, authHook } = opts;
 
+  // Emit PostgREST-compatible flat error format so @supabase/postgrest-js can parse
+  // error.code / error.message / error.details / error.hint on every error response.
+  fastify.setErrorHandler((error, request, reply) => {
+    if (error instanceof AppError) {
+      // PGRST116 and similar errors pass { details, hint } as the AppError.details object
+      const extra = error.details as { details?: unknown; hint?: unknown } | undefined;
+      return reply.status(error.statusCode).send({
+        code: error.code,
+        message: error.message,
+        details: extra?.details ?? null,
+        hint: extra?.hint ?? null,
+      });
+    }
+    request.log.error(error);
+    return reply.status(500).send({
+      code: 'PGRST',
+      message: 'Internal server error',
+      details: null,
+      hint: null,
+    });
+  });
+
   // ── Supabase-compatible routes ───────────────────────────────────────────
   // Auth and project are resolved from the `apikey` request header.
   // The Supabase JS client hits these: {project-ref}.host/rest/v1/{table}
-  fastify.get('/rest/v1/:table',    { preHandler: [resolveFromApikey] }, handleGet);
-  fastify.post('/rest/v1/:table',   { preHandler: [resolveFromApikey] }, handlePost);
-  fastify.patch('/rest/v1/:table',  { preHandler: [resolveFromApikey] }, handlePatch);
-  fastify.delete('/rest/v1/:table', { preHandler: [resolveFromApikey] }, handleDelete);
+  fastify.get('/rest/v1/:table',         { preHandler: [resolveFromApikey] }, handleGet);
+  fastify.post('/rest/v1/:table',        { preHandler: [resolveFromApikey] }, handlePost);
+  fastify.patch('/rest/v1/:table',       { preHandler: [resolveFromApikey] }, handlePatch);
+  fastify.delete('/rest/v1/:table',      { preHandler: [resolveFromApikey] }, handleDelete);
+  fastify.post('/rest/v1/rpc/:fn',       { preHandler: [resolveFromApikey] }, handleRpc);
 
   // ── Project-scoped routes ────────────────────────────────────────────────
   // Project resolved from URL param; auth via Bearer JWT.
   // Useful for server-side access and admin tooling.
-  fastify.get('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveProject, authHook] }, handleGet);
-  fastify.post('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveProject, authHook] }, handlePost);
-  fastify.patch('/project/:projectRef/rest/v1/:table',  { preHandler: [resolveProject, authHook] }, handlePatch);
-  fastify.delete('/project/:projectRef/rest/v1/:table', { preHandler: [resolveProject, authHook] }, handleDelete);
+  fastify.get('/project/:projectRef/rest/v1/:table',      { preHandler: [resolveProject, authHook] }, handleGet);
+  fastify.post('/project/:projectRef/rest/v1/:table',     { preHandler: [resolveProject, authHook] }, handlePost);
+  fastify.patch('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveProject, authHook] }, handlePatch);
+  fastify.delete('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveProject, authHook] }, handleDelete);
+  fastify.post('/project/:projectRef/rest/v1/rpc/:fn',    { preHandler: [resolveProject, authHook] }, handleRpc);
 };
 
 export default restApiPlugin;
