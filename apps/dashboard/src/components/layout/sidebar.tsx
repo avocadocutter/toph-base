@@ -1,7 +1,11 @@
+import { useRef, useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
 import { useProjectStore } from '@/stores/project-store';
+import { api } from '@/lib/api-client';
+import type { Project } from '@/types';
 import {
   Database,
   Terminal,
@@ -15,6 +19,8 @@ import {
   ChevronDown,
   BookOpen,
   GitBranch,
+  Check,
+  Plus,
 } from 'lucide-react';
 
 const projectItems = [
@@ -31,11 +37,93 @@ const platformItems = [
   { to: '/docs', icon: BookOpen, label: 'Docs' },
 ];
 
+function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const currentProject = useProjectStore((s) => s.currentProject);
+  const setProject = useProjectStore((s) => s.setProject);
+
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.get<Project[]>('/platform/projects'),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleSelect = (project: Project) => {
+    setProject(project);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} className="relative mx-2 mt-2">
+      {collapsed ? (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="mx-auto flex rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={currentProject?.name ?? 'Select project'}
+        >
+          <FolderOpen size={18} />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-accent"
+        >
+          <span className="truncate text-left">
+            {currentProject ? currentProject.name : 'Select project...'}
+          </span>
+          <ChevronDown size={14} className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        </button>
+      )}
+
+      {open && (
+        <div className={cn(
+          'absolute z-50 mt-1 w-56 rounded-md border border-border bg-popover py-1 shadow-md',
+          collapsed ? 'left-10 top-0' : 'left-0',
+        )}>
+          {projects === undefined && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">Loading...</p>
+          )}
+          {projects?.map((project) => (
+            <button
+              key={project.id}
+              onClick={() => handleSelect(project)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent"
+            >
+              <Check size={14} className={cn('shrink-0', currentProject?.id === project.id ? 'opacity-100' : 'opacity-0')} />
+              <span className="truncate">{project.name}</span>
+            </button>
+          ))}
+          {projects?.length === 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">No projects yet.</p>
+          )}
+          <div className="my-1 border-t border-border" />
+          <button
+            onClick={() => { setOpen(false); navigate('/projects'); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Plus size={14} className="shrink-0" />
+            <span>Manage projects</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUiStore();
   const currentProject = useProjectStore((s) => s.currentProject);
-  const navigate = useNavigate();
-
   return (
     <aside
       className={cn(
@@ -56,26 +144,7 @@ export function Sidebar() {
       </div>
 
       {/* Project selector */}
-      {!sidebarCollapsed && (
-        <button
-          onClick={() => navigate('/projects')}
-          className="mx-2 mt-2 flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-accent"
-        >
-          <span className="truncate text-left">
-            {currentProject ? currentProject.name : 'Select project...'}
-          </span>
-          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
-        </button>
-      )}
-      {sidebarCollapsed && (
-        <button
-          onClick={() => navigate('/projects')}
-          className="mx-auto mt-2 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          title={currentProject?.name ?? 'Select project'}
-        >
-          <FolderOpen size={18} />
-        </button>
-      )}
+      <ProjectSwitcher collapsed={sidebarCollapsed} />
 
       <nav className="flex-1 space-y-1 p-2">
         {currentProject && (

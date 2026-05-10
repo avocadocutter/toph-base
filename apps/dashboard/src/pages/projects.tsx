@@ -1,19 +1,20 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Plus, FolderOpen, Copy, Check } from 'lucide-react';
 import { api } from '@/lib/api-client';
 import { useProjectStore } from '@/stores/project-store';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, FolderOpen, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setProject = useProjectStore((s) => s.setProject);
+  const currentProject = useProjectStore((s) => s.currentProject);
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [ref, setRef] = useState('');
@@ -57,7 +58,17 @@ export function ProjectsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Projects</h1>
+        <div className="flex items-center gap-3">
+          {currentProject && (
+            <button
+              onClick={() => navigate(-1)}
+              className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ArrowLeft size={16} />
+            </button>
+          )}
+          <h1 className="text-lg font-bold">Projects</h1>
+        </div>
         <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
           <Plus size={14} />
           New Project
