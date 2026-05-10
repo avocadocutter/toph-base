@@ -28,7 +28,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
     await client.query(`SET LOCAL ROLE service_role`);
 
     const existing = await client.query(
-      `SELECT id FROM "users" WHERE email = $1`,
+      `SELECT id FROM auth.users WHERE email = $1`,
       [email],
     );
     if (existing.rows.length > 0) {
@@ -37,7 +37,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
 
     const passwordHash = await hashPassword(password);
     const result = await client.query(
-      `INSERT INTO "users" (email, password_hash, role)
+      `INSERT INTO auth.users (email, password_hash, role)
        VALUES ($1, $2, 'authenticated')
        RETURNING id, email, role, email_confirmed, is_disabled, created_at, updated_at`,
       [email, passwordHash],
@@ -52,7 +52,7 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
     const familyId = crypto.randomUUID();
 
     await client.query(
-      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO auth.sessions (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [user.id, hashRefreshToken(refreshToken), familyId, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -97,7 +97,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
 
     const result = await client.query(
       `SELECT id, email, password_hash, role, is_disabled, email_confirmed, created_at, updated_at, last_sign_in_at
-       FROM "users" WHERE email = $1`,
+       FROM auth.users WHERE email = $1`,
       [email],
     );
 
@@ -117,7 +117,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
     }
 
     await client.query(
-      `UPDATE "users" SET last_sign_in_at = now() WHERE id = $1`,
+      `UPDATE auth.users SET last_sign_in_at = now() WHERE id = $1`,
       [user.id],
     );
 
@@ -128,7 +128,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
     const familyId = crypto.randomUUID();
 
     await client.query(
-      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO auth.sessions (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [user.id, hashRefreshToken(refreshToken), familyId, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -178,8 +178,8 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
 
     const sessionResult = await client.query(
       `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled, u.email_confirmed, u.created_at, u.updated_at, u.last_sign_in_at
-       FROM "sessions" s
-       JOIN "users" u ON s.user_id = u.id
+       FROM auth.sessions s
+       JOIN auth.users u ON s.user_id = u.id
        WHERE s.refresh_token_hash = $1 AND s.expires_at > now()`,
       [tokenHash],
     );
@@ -194,7 +194,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
       throw new UnauthorizedError('Account is disabled');
     }
 
-    await client.query(`DELETE FROM "sessions" WHERE id = $1`, [session.id]);
+    await client.query(`DELETE FROM auth.sessions WHERE id = $1`, [session.id]);
 
     const newAccessToken = await createProjectAccessToken(
       session.user_id, session.email, session.role, project.ref, project.jwtSecret, config.jwt.accessTokenExpiry,
@@ -202,7 +202,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
     const newRefreshToken = await createRefreshToken();
 
     await client.query(
-      `INSERT INTO "sessions" (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
+      `INSERT INTO auth.sessions (user_id, refresh_token_hash, family_id, ip_address, user_agent, expires_at)
        VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
       [session.user_id, hashRefreshToken(newRefreshToken), session.family_id, request.ip, request.headers['user-agent'] ?? null, config.jwt.refreshTokenExpiry],
     );
@@ -242,7 +242,7 @@ export async function projectSignoutHandler(request: FastifyRequest, reply: Fast
     try {
       await client.query('BEGIN');
       await client.query(`SET LOCAL ROLE service_role`);
-      await client.query(`DELETE FROM "sessions" WHERE user_id = $1`, [request.userId]);
+      await client.query(`DELETE FROM auth.sessions WHERE user_id = $1`, [request.userId]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -269,7 +269,7 @@ export async function projectMeHandler(request: FastifyRequest, reply: FastifyRe
 
     const result = await client.query(
       `SELECT id, email, role, email_confirmed, is_disabled, metadata, created_at, updated_at, last_sign_in_at
-       FROM "users" WHERE id = $1`,
+       FROM auth.users WHERE id = $1`,
       [request.userId],
     );
 

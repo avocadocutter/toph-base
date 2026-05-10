@@ -1,6 +1,6 @@
 -- Upserts a progress row and increments attempt count atomically
 create or replace function increment_attempts(
-  p_user_id     text,
+  p_user_id     uuid,
   p_course_slug text,
   p_module_slug text,
   p_lesson_slug text

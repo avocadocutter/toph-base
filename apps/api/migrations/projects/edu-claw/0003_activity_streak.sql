@@ -1,7 +1,7 @@
 -- Track daily learning activity for streak display
 create table user_activity (
-  id            text primary key default gen_random_uuid()::text,
-  user_id       text not null references profiles(id) on delete cascade,
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references profiles(id) on delete cascade,
   activity_date date not null,
   lesson_count  int  not null default 0,
   unique(user_id, activity_date)

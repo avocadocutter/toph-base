@@ -386,7 +386,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     const limit = Math.min(parseInt(query.limit ?? '50', 10), 100);
     const offset = parseInt(query.offset ?? '0', 10);
 
-    let sql = `SELECT id, email, role, email_confirmed, is_disabled, created_at, updated_at, last_sign_in_at FROM "users"`;
+    let sql = `SELECT id, email, role, email_confirmed, is_disabled, created_at, updated_at, last_sign_in_at FROM auth.users`;
     const values: unknown[] = [];
 
     if (query.search) {
@@ -404,7 +404,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       await client.query('SET LOCAL ROLE service_role');
       const result = await client.query(sql, values);
 
-      let countSql = `SELECT count(*)::int AS count FROM "users"`;
+      let countSql = `SELECT count(*)::int AS count FROM auth.users`;
       const countValues: unknown[] = [];
       if (query.search) {
         countSql += ' WHERE email ILIKE $1';
@@ -460,7 +460,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
       // Check if user already exists
       const existing = await client.query(
-        `SELECT id FROM "users" WHERE email = $1`,
+        `SELECT id FROM auth.users WHERE email = $1`,
         [body.email]
       );
 
@@ -473,7 +473,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       const passwordHash = await hashPassword(body.password);
 
       const result = await client.query(
-        `INSERT INTO "users" (email, password_hash, role, email_confirmed)
+        `INSERT INTO auth.users (email, password_hash, role, email_confirmed)
          VALUES ($1, $2, 'authenticated', $3)
          RETURNING id, email, role, email_confirmed, is_disabled, created_at, updated_at`,
         [body.email, passwordHash, body.emailConfirmed ?? false]
@@ -537,7 +537,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     updates.push(`updated_at = now()`);
     values.push(id);
 
-    const sql = `UPDATE "users" SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, role, is_disabled, updated_at`;
+    const sql = `UPDATE auth.users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, email, role, is_disabled, updated_at`;
 
     const client = await projectDb.connect();
     try {
@@ -568,7 +568,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE service_role');
       const result = await client.query(
-        `DELETE FROM "users" WHERE id = $1 RETURNING id`,
+        `DELETE FROM auth.users WHERE id = $1 RETURNING id`,
         [id],
       );
       await client.query('COMMIT');

@@ -232,6 +232,10 @@ async function main() {
   // Graceful shutdown handlers
   const shutdown = async () => {
     fastify.log.info('Shutting down gracefully...');
+    setTimeout(() => {
+      fastify.log.warn('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 5000).unref();
     postgrestManager.shutdown();
     await poolManager.shutdown();
     await fastify.close();

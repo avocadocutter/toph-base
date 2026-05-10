@@ -1,8 +1,8 @@
 create type payment_status as enum ('free', 'pending', 'paid', 'refunded');
 
 create table user_enrollments (
-  id                          text primary key default gen_random_uuid()::text,
-  user_id                     text not null references profiles(id) on delete cascade,
+  id                          uuid primary key default gen_random_uuid(),
+  user_id                     uuid not null references profiles(id) on delete cascade,
   course_slug                 text not null,
   enrolled_at                 timestamptz default now(),
   price_paid                  numeric(10,2) not null default 0,

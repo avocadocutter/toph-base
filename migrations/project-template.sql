@@ -17,10 +17,10 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb
     SELECT COALESCE(current_setting('request.jwt.claims', true)::jsonb, '{}'::jsonb)
   $$;
 
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS text
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
   LANGUAGE sql STABLE
   AS $$
-    SELECT NULLIF(auth.jwt() ->> 'sub', '')
+    SELECT NULLIF(auth.jwt() ->> 'sub', '')::uuid
   $$;
 
 CREATE OR REPLACE FUNCTION auth.role() RETURNS text
@@ -34,15 +34,6 @@ CREATE OR REPLACE FUNCTION auth.email() RETURNS text
   AS $$
     SELECT NULLIF(auth.jwt() ->> 'email', '')
   $$;
-
--- Unqualified aliases kept for backward compatibility with existing policies
-CREATE OR REPLACE FUNCTION auth_uid() RETURNS text
-  LANGUAGE sql STABLE
-  AS $$ SELECT auth.uid() $$;
-
-CREATE OR REPLACE FUNCTION auth_role() RETURNS text
-  LANGUAGE sql STABLE
-  AS $$ SELECT auth.role() $$;
 
 -- Create roles if they don't exist (ignore errors if they already exist on the cluster)
 DO $$
@@ -68,43 +59,43 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
 
--- Users table
-CREATE TABLE IF NOT EXISTS public.users (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email text UNIQUE NOT NULL,
-  password_hash text NOT NULL,
-  role text NOT NULL DEFAULT 'authenticated',
-  email_confirmed boolean DEFAULT false,
-  is_disabled boolean DEFAULT false,
-  metadata jsonb DEFAULT '{}',
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  last_sign_in_at timestamptz
+-- auth.users — canonical user table, written to by the auth service (mirrors Supabase)
+CREATE TABLE IF NOT EXISTS auth.users (
+  id                uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email             text UNIQUE NOT NULL,
+  password_hash     text NOT NULL,
+  role              text NOT NULL DEFAULT 'authenticated',
+  email_confirmed   boolean DEFAULT false,
+  is_disabled       boolean DEFAULT false,
+  metadata          jsonb DEFAULT '{}',
+  created_at        timestamptz DEFAULT now(),
+  updated_at        timestamptz DEFAULT now(),
+  last_sign_in_at   timestamptz
 );
 
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.users FORCE ROW LEVEL SECURITY;
+ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.users FORCE ROW LEVEL SECURITY;
 
-GRANT SELECT ON public.users TO anon;
-GRANT ALL ON public.users TO authenticated;
-GRANT ALL ON public.users TO service_role;
+GRANT SELECT ON auth.users TO anon;
+GRANT ALL ON auth.users TO authenticated;
+GRANT ALL ON auth.users TO service_role;
 
--- Sessions table
-CREATE TABLE IF NOT EXISTS public.sessions (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  refresh_token_hash text NOT NULL,
-  family_id text NOT NULL,
-  ip_address text,
-  user_agent text,
-  created_at timestamptz DEFAULT now(),
-  expires_at timestamptz NOT NULL
+-- auth.sessions — managed by the auth service
+CREATE TABLE IF NOT EXISTS auth.sessions (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id             uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  refresh_token_hash  text NOT NULL,
+  family_id           text NOT NULL,
+  ip_address          text,
+  user_agent          text,
+  created_at          timestamptz DEFAULT now(),
+  expires_at          timestamptz NOT NULL
 );
 
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sessions FORCE ROW LEVEL SECURITY;
+ALTER TABLE auth.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.sessions FORCE ROW LEVEL SECURITY;
 
-GRANT ALL ON public.sessions TO service_role;
+GRANT ALL ON auth.sessions TO service_role;
 
 -- DDL event trigger for schema change notification
 CREATE OR REPLACE FUNCTION public.notify_schema_change() RETURNS event_trigger AS $$

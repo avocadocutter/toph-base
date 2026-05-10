@@ -1,6 +1,6 @@
 create table user_commitments (
-  id                  text primary key default gen_random_uuid()::text,
-  user_id             text not null references profiles(id) on delete cascade,
+  id                  uuid primary key default gen_random_uuid(),
+  user_id             uuid not null references profiles(id) on delete cascade,
   course_slug         text not null,
   why_message         text not null,
   days_per_week       int  not null check (days_per_week between 1 and 7),

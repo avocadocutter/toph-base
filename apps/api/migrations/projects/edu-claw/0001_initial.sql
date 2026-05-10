@@ -2,7 +2,7 @@ create type subscription_status as enum ('FREE', 'ACTIVE', 'CANCELLED', 'PAST_DU
 create type sandbox_status     as enum ('CREATING', 'READY', 'IDLE', 'REAPED', 'ERROR');
 
 create table profiles (
-  id                  text primary key,           -- Clerk userId
+  id                  uuid primary key references auth.users(id) on delete cascade,
   email               text unique not null,
   created_at          timestamptz default now(),
   stripe_customer_id  text unique,
@@ -10,8 +10,8 @@ create table profiles (
 );
 
 create table sandbox_sessions (
-  id                text primary key default gen_random_uuid()::text,
-  user_id           text not null references profiles(id) on delete cascade,
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references profiles(id) on delete cascade,
   course_slug       text not null,
   module_slug       text not null,
   lesson_slug       text not null,
@@ -26,8 +26,8 @@ create index on sandbox_sessions(user_id, lesson_slug);
 create index on sandbox_sessions(status, last_heartbeat_at);
 
 create table user_progress (
-  id          text primary key default gen_random_uuid()::text,
-  user_id     text not null references profiles(id) on delete cascade,
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references profiles(id) on delete cascade,
   course_slug text not null,
   module_slug text not null,
   lesson_slug text not null,
@@ -48,7 +48,6 @@ grant select, insert, update, delete on table profiles         to anon, authenti
 grant select, insert, update, delete on table sandbox_sessions to anon, authenticated, service_role;
 grant select, insert, update, delete on table user_progress    to anon, authenticated, service_role;
 
--- profiles: insert handled by backend on first sign-in (service_role)
 create policy "users can read own profile"
   on profiles for select using (id = auth.uid());
 create policy "users can update own profile"

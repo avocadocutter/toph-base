@@ -1,6 +1,6 @@
 -- RPC to upsert daily activity and increment lesson count
 create or replace function upsert_activity(
-  p_user_id text,
+  p_user_id uuid,
   p_date    date
 ) returns void
 language plpgsql
