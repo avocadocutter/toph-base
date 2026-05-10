@@ -3,7 +3,7 @@ import { requirePlatformAdmin } from '../../hooks/authenticate.js';
 import { createProjectResolver } from '../../hooks/resolve-project.js';
 import { quoteIdentifier, isValidIdentifier, validateRlsPolicyExpression } from '../../lib/sql-helpers.js';
 import { z } from 'zod';
-import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { BadRequestError } from '../../lib/errors.js';
 import { invalidateCache } from '../introspection/inspector.js';
 
 const createPolicySchema = z.object({
@@ -17,66 +17,6 @@ const createPolicySchema = z.object({
 
 const rlsPlugin: FastifyPluginAsync = async (fastify) => {
   const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
-
-  // Policy templates (no project scope needed)
-  fastify.get('/platform/admin/rls/templates', { preHandler: [requirePlatformAdmin] }, async () => {
-    return [
-      {
-        name: 'Owner-based access',
-        description: 'Users can only access their own rows',
-        command: 'ALL',
-        using: "auth_uid() = user_id",
-        withCheck: "auth_uid() = user_id",
-      },
-      {
-        name: 'Public read, owner write',
-        description: 'Anyone can read, only the owner can write',
-        command: 'SELECT',
-        using: 'true',
-        withCheck: null,
-      },
-      {
-        name: 'Authenticated read-only',
-        description: 'Authenticated users can read all rows',
-        command: 'SELECT',
-        using: "auth_role() = 'authenticated'",
-        withCheck: null,
-      },
-      {
-        name: 'Admin full access',
-        description: 'Admins have full access',
-        command: 'ALL',
-        using: "auth_role() = 'admin'",
-        withCheck: "auth_role() = 'admin'",
-      },
-    ];
-  });
-
-  // ── Project-scoped RLS routes ──
-
-  // Get RLS status for a table
-  fastify.get('/platform/projects/:projectRef/admin/rls/:table/status', {
-    preHandler: [requirePlatformAdmin, resolveProject],
-  }, async (request: FastifyRequest) => {
-    const { table } = request.params as { table: string; projectRef: string };
-    const projectDb = request.projectDb!;
-
-    const result = await projectDb.query(
-      `SELECT c.relrowsecurity, c.relforcerowsecurity
-       FROM pg_class c
-       JOIN pg_namespace n ON c.relnamespace = n.oid
-       WHERE n.nspname = 'public' AND c.relname = $1`,
-      [table],
-    );
-
-    if (result.rows.length === 0) throw new NotFoundError(`Table '${table}' not found`);
-
-    return {
-      table,
-      rlsEnabled: result.rows[0].relrowsecurity,
-      rlsForced: result.rows[0].relforcerowsecurity,
-    };
-  });
 
   // Enable RLS
   fastify.post('/platform/projects/:projectRef/admin/rls/:table/enable', {

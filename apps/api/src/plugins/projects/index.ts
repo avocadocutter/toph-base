@@ -2,9 +2,8 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { requirePlatformAdmin } from '../../hooks/authenticate.js';
 import {
   generateProjectJwtSecret,
-  generateApiKey,
   generatePublishableKey,
-  generateSecretKey
+  generateSecretKey,
 } from '../auth/jwt.js';
 import { invalidateProjectCache } from '../../hooks/resolve-project.js';
 import { isValidIdentifier, quoteIdentifier } from '../../lib/sql-helpers.js';
@@ -62,7 +61,8 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     const userId = request.platformUserId!;
 
     const result = await fastify.db.query(
-      `SELECT p.*, pm.role AS member_role
+      `SELECT p.id, p.ref, p.name, p.db_name, p.status, p.settings, p.created_at, p.updated_at,
+              pm.role AS member_role
        FROM toph_internal.projects p
        JOIN toph_internal.project_members pm ON p.id = pm.project_id
        WHERE p.ref = $1 AND pm.user_id = $2 AND p.status != 'deleted'`,
@@ -92,7 +92,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       ref: p.ref,
       name: p.name,
       dbName: p.db_name,
-      jwtSecret: p.jwt_secret,
       status: p.status,
       publishableKey,
       secretKey,
@@ -337,39 +336,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // Regenerate JWT secret (dangerous - invalidates all existing user sessions)
-  fastify.post('/platform/projects/:ref/regenerate-jwt-secret', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
-    const { ref } = request.params as { ref: string };
-    const userId = request.platformUserId!;
-
-    // Verify ownership
-    const check = await fastify.db.query(
-      `SELECT p.id FROM toph_internal.projects p
-       JOIN toph_internal.project_members pm ON p.id = pm.project_id
-       WHERE p.ref = $1 AND pm.user_id = $2 AND pm.role = 'owner' AND p.status != 'deleted'`,
-      [ref, userId],
-    );
-    if (check.rows.length === 0) {
-      throw new NotFoundError('Project not found or insufficient permissions');
-    }
-
-    const newJwtSecret = generateProjectJwtSecret();
-
-    const result = await fastify.db.query(
-      `UPDATE toph_internal.projects
-       SET jwt_secret = $1, updated_at = now()
-       WHERE ref = $2
-       RETURNING jwt_secret`,
-      [newJwtSecret, ref],
-    );
-
-    invalidateProjectCache(ref);
-
-    return {
-      jwtSecret: result.rows[0].jwt_secret,
-      message: 'JWT secret regenerated. All user sessions are now invalid.',
-    };
-  });
 };
 
 export default projectsPlugin;

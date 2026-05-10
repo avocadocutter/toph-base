@@ -73,40 +73,17 @@ export async function verifyProjectAccessToken(
   return payload as unknown as ProjectJwtPayload;
 }
 
-// ── API Keys (long-lived pre-signed JWTs) ──
-
-export async function generateApiKey(
-  role: 'anon' | 'service_role',
-  projectRef: string,
-  jwtSecret: string,
-): Promise<string> {
-  const secretKey = new TextEncoder().encode(jwtSecret);
-  return new jose.SignJWT({
-    sub: '00000000-0000-0000-0000-000000000000',
-    role,
-    type: 'access',
-    project_ref: projectRef,
-  })
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
-    .setIssuedAt()
-    .setExpirationTime('10y')
-    .setIssuer(`toph-project:${projectRef}`)
-    .sign(secretKey);
-}
-
 export function generateProjectJwtSecret(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// ── New API Key Generation (Supabase-compatible sb_publishable_*, sb_secret_*) ──
+// ── API Key Generation ──
 
 export function generatePublishableKey(): string {
-  // sb_publishable_ + 40 hex characters (20 bytes)
   return `sb_publishable_${crypto.randomBytes(20).toString('hex')}`;
 }
 
 export function generateSecretKey(): string {
-  // sb_secret_ + 40 hex characters (20 bytes)
   return `sb_secret_${crypto.randomBytes(20).toString('hex')}`;
 }
 

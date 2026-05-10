@@ -5,9 +5,8 @@ import { useProjectStore } from '@/stores/project-store';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { RefreshCw, Plug, Copy, Check, Eye, EyeOff, RotateCcw, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, Plug, Copy, Check, Eye, EyeOff, RotateCcw, AlertCircle } from 'lucide-react';
 
 function ApiKeyRow({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -77,11 +76,6 @@ export function SettingsPage() {
       }>('/health'),
   });
 
-  const settings = useQuery({
-    queryKey: ['admin-settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/platform/admin/settings'),
-  });
-
   const extensions = useQuery({
     queryKey: ['admin-extensions'],
     queryFn: () =>
@@ -108,36 +102,7 @@ export function SettingsPage() {
     },
   });
 
-  const [postgrestUrl, setPostgrestUrl] = useState('');
-  const [isEditingPostgrest, setIsEditingPostgrest] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const updatePostgrestUrl = useMutation({
-    mutationFn: (url: string | null) =>
-      api.patch(`/platform/projects/${currentProject!.ref}`, {
-        postgrestUrl: url || null,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-detail', currentProject?.ref] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setIsEditingPostgrest(false);
-      toast.success('PostgREST URL updated');
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const regenerateJwtSecret = useMutation({
-    mutationFn: () =>
-      api.post<{ jwtSecret: string; message: string }>(
-        `/platform/projects/${currentProject!.ref}/regenerate-jwt-secret`,
-        {},
-      ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['project-detail', currentProject?.ref] });
-      toast.success(data.message);
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
   return (
     <div className="space-y-6">
@@ -259,198 +224,6 @@ export function SettingsPage() {
         </section>
       )}
 
-      {/* PostgREST Configuration */}
-      {currentProject && projectDetail.data && (
-        <section className="space-y-4 rounded-lg border border-border bg-card p-4">
-          <div>
-            <h2 className="text-sm font-semibold">PostgREST Configuration</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Configure the PostgREST instance URL for your project's REST API.
-            </p>
-          </div>
-
-          {/* Health Status */}
-          {projectDetail.data.postgrestHealth && (
-            <div className="flex items-center gap-2 text-sm">
-              {projectDetail.data.postgrestHealth.isHealthy ? (
-                <>
-                  <CheckCircle size={16} className="text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">PostgREST instance is healthy</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle size={16} className="text-red-500" />
-                  <span className="text-red-600 dark:text-red-400">
-                    PostgREST instance is not responding
-                    {projectDetail.data.postgrestHealth.lastError && (
-                      <span className="text-xs text-muted-foreground ml-1">
-                        ({projectDetail.data.postgrestHealth.lastError})
-                      </span>
-                    )}
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Configuration Values */}
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <span className="text-xs text-muted-foreground">Database Name</span>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
-                  {currentProject.dbName}
-                </code>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(currentProject.dbName);
-                    setCopiedId('postgrest-db');
-                    setTimeout(() => setCopiedId(null), 2000);
-                  }}
-                  className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="Copy schema name"
-                >
-                  {copiedId === 'postgrest-db' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-
-            {projectDetail.data?.jwtSecret && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">JWT Secret</span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (confirm(
-                        '⚠️ WARNING: Regenerating the JWT secret will:\n\n' +
-                        '• Invalidate ALL user sessions immediately\n' +
-                        '• Require restarting PostgREST with the new secret\n' +
-                        '• Break your application until PostgREST is updated\n\n' +
-                        'Are you sure you want to continue?'
-                      )) {
-                        regenerateJwtSecret.mutate();
-                      }
-                    }}
-                    disabled={regenerateJwtSecret.isPending}
-                  >
-                    <RotateCcw size={12} />
-                    Regenerate
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono truncate">
-                    {projectDetail.data.jwtSecret}
-                  </code>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(projectDetail.data.jwtSecret!);
-                      setCopiedId('jwt-secret');
-                      setTimeout(() => setCopiedId(null), 2000);
-                    }}
-                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title="Copy JWT secret"
-                  >
-                    {copiedId === 'jwt-secret' ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <span className="text-xs text-muted-foreground">PostgREST URL</span>
-              {isEditingPostgrest ? (
-                <div className="space-y-2">
-                  <Input
-                    type="url"
-                    placeholder="http://localhost:9001"
-                    value={postgrestUrl}
-                    onChange={(e) => setPostgrestUrl(e.target.value)}
-                    className="font-mono text-xs"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => updatePostgrestUrl.mutate(postgrestUrl)}
-                      disabled={updatePostgrestUrl.isPending}
-                    >
-                      <Save size={14} />
-                      Save
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setIsEditingPostgrest(false);
-                        setPostgrestUrl(projectDetail.data?.postgrestUrl || '');
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    {projectDetail.data.postgrestUrl && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (confirm('Remove PostgREST URL? The REST API will not be available until a new URL is configured.')) {
-                            updatePostgrestUrl.mutate(null);
-                          }
-                        }}
-                        disabled={updatePostgrestUrl.isPending}
-                      >
-                        Remove
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded bg-muted px-3 py-1.5 text-xs font-mono">
-                    {projectDetail.data.postgrestUrl || 'Not configured'}
-                  </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setPostgrestUrl(projectDetail.data?.postgrestUrl || '');
-                      setIsEditingPostgrest(true);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {!projectDetail.data.postgrestUrl && (
-            <div className="rounded bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs">
-              <strong className="text-yellow-600 dark:text-yellow-400">No PostgREST instance configured.</strong>
-              <span className="text-muted-foreground">
-                {' '}The REST API endpoint (<code>/rest/v1/*</code>) will return a 503 error until you configure a PostgREST URL.
-              </span>
-            </div>
-          )}
-
-          <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
-            <div><strong>Example docker command:</strong></div>
-            <code className="block whitespace-pre-wrap break-all">
-              {(() => {
-                const hostPort = projectDetail.data?.postgrestUrl
-                  ? new URL(projectDetail.data.postgrestUrl).port || '3000'
-                  : '3000';
-                return `docker run --rm -p ${hostPort}:3000 \\\n` +
-                  `  -e PGRST_DB_URI="postgres://authenticator:changeme@host.docker.internal:5432/${currentProject.dbName}" \\\n` +
-                  `  -e PGRST_DB_SCHEMAS="public" \\\n` +
-                  `  -e PGRST_DB_ANON_ROLE="anon" \\\n` +
-                  (projectDetail.data?.jwtSecret ? `  -e PGRST_JWT_SECRET="${projectDetail.data.jwtSecret}" \\\n` : '') +
-                  `  postgrest/postgrest`;
-              })()}
-            </code>
-          </div>
-        </section>
-      )}
 
       {/* Database Status */}
       <section className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -476,21 +249,6 @@ export function SettingsPage() {
           </Button>
         )}
       </section>
-
-      {/* Settings */}
-      {settings.data && (
-        <section className="space-y-3 rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold">Configuration</h2>
-          <div className="space-y-2">
-            {Object.entries(settings.data).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{key}</span>
-                <code className="rounded bg-muted px-2 py-0.5 text-xs">{JSON.stringify(value)}</code>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* Extensions */}
       <section className="space-y-3 rounded-lg border border-border bg-card p-4">

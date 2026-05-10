@@ -345,16 +345,9 @@ curl '${apiUrl}/todos?order=id.desc' \\
         {/* Footer */}
         <section className="border-t border-border pt-6">
           <p className="text-sm text-muted-foreground">
-            For more details on the API specification, visit the{' '}
-            <a
-              href="https://postgrest.org/en/stable/references/api.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline hover:no-underline"
-            >
-              PostgREST documentation
-            </a>
-            .
+            The REST API is built into toph-base. See{' '}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">apps/api/src/plugins/rest-api/README.md</code>
+            {' '}for supported features, gaps, and how to extend it.
           </p>
         </section>
       </div>

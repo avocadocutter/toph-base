@@ -3,17 +3,9 @@ export interface Project {
   ref: string;
   name: string;
   dbName: string;
-  jwtSecret?: string;
   status: string;
   publishableKey?: string;
   secretKey?: string;
-  postgrestUrl?: string | null;
-  postgrestHealth?: {
-    url: string;
-    isHealthy: boolean;
-    lastCheck: number;
-    lastError?: string;
-  };
   memberRole: string;
   createdAt: string;
   updatedAt: string;

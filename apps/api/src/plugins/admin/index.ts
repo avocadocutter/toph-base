@@ -127,30 +127,6 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     return { message: 'User deleted' };
   });
 
-  // Get settings
-  fastify.get('/platform/admin/settings', { preHandler: [requirePlatformAdmin] }, async () => {
-    const result = await fastify.db.query('SELECT key, value FROM toph_internal.settings ORDER BY key');
-    const settings: Record<string, unknown> = {};
-    for (const row of result.rows) {
-      settings[row.key] = row.value;
-    }
-    return settings;
-  });
-
-  // Update settings
-  fastify.patch('/platform/admin/settings', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
-    const body = request.body as Record<string, unknown>;
-    for (const [key, value] of Object.entries(body)) {
-      await fastify.db.query(
-        `INSERT INTO toph_internal.settings (key, value, updated_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`,
-        [key, JSON.stringify(value)],
-      );
-    }
-    return { message: 'Settings updated' };
-  });
-
   // List extensions
   fastify.get('/platform/admin/extensions', { preHandler: [requirePlatformAdmin] }, async () => {
     const installed = await fastify.db.query(
@@ -308,9 +284,6 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
     invalidateCache(project.ref);
 
-    // Notify PostgREST to reload schema cache
-    await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
-
     reply.status(201);
     return { message: `Table ${body.name} created`, sql };
   });
@@ -329,9 +302,6 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
     await projectDb.query(`DROP TABLE ${quoteIdentifier(table)} CASCADE`);
     invalidateCache(project.ref);
-
-    // Notify PostgREST to reload schema cache
-    await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
 
     return { message: `Table ${table} dropped` };
   });
@@ -356,9 +326,6 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
       }
       const duration = Date.now() - startTime;
       invalidateCache(project.ref);
-
-      // Notify PostgREST to reload schema cache (in case DDL was executed)
-      await projectDb.query(`NOTIFY pgrst, 'reload schema'`).catch(() => {});
 
       return {
         rows: result.rows ?? [],
@@ -786,7 +753,6 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
         );
 
         invalidateCache(project.ref);
-        await projectDb.query(`NOTIFY pgrst, 'reload schema'`);
 
         applied.push(name);
 

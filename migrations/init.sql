@@ -83,7 +83,6 @@ CREATE TABLE toph_internal.projects (
     jwt_secret      TEXT NOT NULL,
     anon_key        TEXT NOT NULL,
     service_role_key TEXT NOT NULL,
-    postgrest_url   TEXT,  -- URL of the manually-managed PostgREST instance
     status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'deleted')),
     settings        JSONB NOT NULL DEFAULT '{}',
     created_by      UUID NOT NULL REFERENCES toph_internal.platform_users(id),
@@ -103,12 +102,6 @@ CREATE TABLE toph_internal.project_members (
     PRIMARY KEY (project_id, user_id)
 );
 
--- Platform settings
-CREATE TABLE toph_internal.settings (
-    key        TEXT PRIMARY KEY,
-    value      JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 -- ============================================================
 -- Auth helper functions (used in RLS policies within project schemas)
