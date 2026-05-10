@@ -33,10 +33,6 @@ const configSchema = z.object({
     enableSignup: z.coerce.boolean().default(true),
     requireAuthForApi: z.coerce.boolean().default(true),
   }),
-  postgrest: z.object({
-    healthCheckIntervalMs: z.coerce.number().default(30000),
-    healthCheckTimeoutMs: z.coerce.number().default(5000),
-  }),
   poolManager: z.object({
     maxPools: z.coerce.number().default(50),
     idleEvictionMs: z.coerce.number().default(300000),
@@ -81,10 +77,6 @@ export function loadConfig(): Config {
     features: {
       enableSignup: env.ENABLE_SIGNUP,
       requireAuthForApi: env.REQUIRE_AUTH_FOR_API,
-    },
-    postgrest: {
-      healthCheckIntervalMs: env.POSTGREST_HEALTH_CHECK_INTERVAL_MS,
-      healthCheckTimeoutMs: env.POSTGREST_HEALTH_CHECK_TIMEOUT_MS,
     },
     poolManager: {
       maxPools: env.POOL_MANAGER_MAX_POOLS,

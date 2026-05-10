@@ -16,8 +16,6 @@ import rlsPlugin from './plugins/rls/index.js';
 import adminPlugin from './plugins/admin/index.js';
 import projectsPlugin from './plugins/projects/index.js';
 import apiKeysPlugin from './plugins/api-keys/index.js';
-import postgrestProxyPlugin from './plugins/postgrest-proxy/index.js';
-import { PostgrestManager } from './lib/postgrest-manager.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -51,18 +49,10 @@ async function main() {
   });
   const db = poolManager.getPlatformPool();
 
-  // Create PostgREST manager (for health checking manually-managed instances)
-  const postgrestManager = new PostgrestManager({
-    healthCheckIntervalMs: config.postgrest.healthCheckIntervalMs,
-    healthCheckTimeoutMs: config.postgrest.healthCheckTimeoutMs,
-    logger: fastify.log,
-  });
-
   // Decorate fastify with shared instances
   fastify.decorate('db', db);
   fastify.decorate('config', config);
   fastify.decorate('authenticate', authenticatePlatform);
-  fastify.decorate('postgrestManager', postgrestManager);
   fastify.decorate('projectPoolManager', poolManager);
 
   // Initialize platform JWT
@@ -188,7 +178,6 @@ async function main() {
   await fastify.register(restApiPlugin);
   await fastify.register(rlsPlugin);
   await fastify.register(adminPlugin);
-  await fastify.register(postgrestProxyPlugin);
 
   // Serve dashboard static files if they exist
   const dashboardPath = path.resolve(__dirname, '../../dashboard/dist');
@@ -221,14 +210,6 @@ async function main() {
   // Bootstrap admin user
   await bootstrapAdmin(db, config);
 
-  // Register PostgREST instances for all active projects with configured URLs
-  const activeProjects = await db.query(
-    `SELECT ref, postgrest_url FROM toph_internal.projects WHERE status = 'active' AND postgrest_url IS NOT NULL`
-  );
-  for (const project of activeProjects.rows) {
-    await postgrestManager.registerInstance(project.ref, project.postgrest_url);
-  }
-
   // Graceful shutdown handlers
   const shutdown = async () => {
     fastify.log.info('Shutting down gracefully...');
@@ -236,7 +217,6 @@ async function main() {
       fastify.log.warn('Graceful shutdown timed out, forcing exit');
       process.exit(1);
     }, 5000).unref();
-    postgrestManager.shutdown();
     await poolManager.shutdown();
     await fastify.close();
     process.exit(0);

@@ -18,13 +18,11 @@ import { fileURLToPath } from 'node:url';
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
   ref: z.string().regex(/^[a-z][a-z0-9-]*$/, 'Ref must be lowercase alphanumeric with hyphens').min(3).max(32).optional(),
-  postgrestUrl: z.string().url().optional(),
 });
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   status: z.enum(['active', 'paused']).optional(),
-  postgrestUrl: z.string().url().optional(),
 });
 
 function generateRef(): string {
@@ -89,9 +87,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     const publishableKey = keysResult.rows.find(k => k.key_prefix === 'publishable')?.key_value;
     const secretKey = keysResult.rows.find(k => k.key_prefix === 'secret')?.key_value;
 
-    // Get PostgREST health status if configured
-    const postgrestHealth = p.postgrest_url ? fastify.postgrestManager.getHealth(p.ref) : undefined;
-
     return {
       id: p.id,
       ref: p.ref,
@@ -101,8 +96,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       status: p.status,
       publishableKey,
       secretKey,
-      postgrestUrl: p.postgrest_url,
-      postgrestHealth: postgrestHealth ?? null,
       settings: p.settings,
       memberRole: p.member_role,
       createdAt: p.created_at,
@@ -142,10 +135,10 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       await client.query('BEGIN');
 
       const insertResult = await client.query(
-        `INSERT INTO toph_internal.projects (ref, name, db_name, jwt_secret, postgrest_url, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO toph_internal.projects (ref, name, db_name, jwt_secret, created_by)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id, ref, name, db_name, status, created_at`,
-        [ref, body.name, dbName, jwtSecret, body.postgrestUrl ?? null, userId],
+        [ref, body.name, dbName, jwtSecret, userId],
       );
 
       project = insertResult.rows[0];
@@ -199,16 +192,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       throw new BadRequestError(`Failed to provision project database: ${message}`);
     }
 
-    // Register PostgREST instance if URL was provided
-    if (body.postgrestUrl) {
-      const isHealthy = await fastify.postgrestManager.registerInstance(ref, body.postgrestUrl);
-      if (!isHealthy) {
-        fastify.log.warn({ project: ref, url: body.postgrestUrl }, 'PostgREST instance not healthy at creation time');
-      }
-    }
-
-    const postgrestHealth = body.postgrestUrl ? fastify.postgrestManager.getHealth(ref) : null;
-
     reply.status(201).send({
       id: project.id,
       ref: project.ref,
@@ -217,8 +200,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       status: project.status,
       publishableKey,
       secretKey,
-      postgrestUrl: body.postgrestUrl ?? null,
-      postgrestHealth,
       createdAt: project.created_at,
     });
   });
@@ -252,10 +233,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       updates.push(`status = $${paramIndex++}`);
       values.push(body.status);
     }
-    if (body.postgrestUrl !== undefined) {
-      updates.push(`postgrest_url = $${paramIndex++}`);
-      values.push(body.postgrestUrl);
-    }
 
     if (updates.length === 0) {
       throw new BadRequestError('No fields to update');
@@ -265,33 +242,12 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     values.push(ref);
 
     const result = await fastify.db.query(
-      `UPDATE toph_internal.projects SET ${updates.join(', ')} WHERE ref = $${paramIndex} RETURNING id, ref, name, db_name, postgrest_url, status, updated_at`,
+      `UPDATE toph_internal.projects SET ${updates.join(', ')} WHERE ref = $${paramIndex} RETURNING id, ref, name, db_name, status, updated_at`,
       values,
     );
 
-    const proj = result.rows[0];
-
-    // Handle PostgREST instance lifecycle based on changes
-    if (body.postgrestUrl !== undefined) {
-      if (body.postgrestUrl) {
-        // URL was set or changed - register the new instance
-        await fastify.postgrestManager.registerInstance(ref, body.postgrestUrl);
-      } else {
-        // URL was cleared - unregister
-        fastify.postgrestManager.unregisterInstance(ref);
-      }
-    }
-
-    if (body.status === 'paused') {
-      // Unregister PostgREST instance when project is paused
-      fastify.postgrestManager.unregisterInstance(ref);
-    } else if (body.status === 'active' && proj.postgrest_url) {
-      // Re-register when reactivating
-      await fastify.postgrestManager.registerInstance(ref, proj.postgrest_url);
-    }
-
     invalidateProjectCache(ref);
-    return proj;
+    return result.rows[0];
   });
 
   // Delete project
@@ -325,9 +281,6 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       fastify.log.error({ error, dbName, ref }, 'Failed to drop project database');
     }
-
-    // Unregister PostgREST instance
-    fastify.postgrestManager.unregisterInstance(ref);
 
     invalidateProjectCache(ref);
     return { message: `Project '${ref}' deleted` };
@@ -384,7 +337,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  // Regenerate JWT secret (dangerous - invalidates all sessions and requires PostgREST restart)
+  // Regenerate JWT secret (dangerous - invalidates all existing user sessions)
   fastify.post('/platform/projects/:ref/regenerate-jwt-secret', { preHandler: [requirePlatformAdmin] }, async (request: FastifyRequest) => {
     const { ref } = request.params as { ref: string };
     const userId = request.platformUserId!;
@@ -414,7 +367,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
 
     return {
       jwtSecret: result.rows[0].jwt_secret,
-      message: 'JWT secret regenerated. All user sessions are now invalid. You must restart PostgREST with the new secret.',
+      message: 'JWT secret regenerated. All user sessions are now invalid.',
     };
   });
 };

@@ -54,7 +54,7 @@ export async function createProjectAccessToken(
     type: 'access',
     project_ref: projectRef,
   })
-    .setProtectedHeader({ alg: 'HS256' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuedAt()
     .setExpirationTime(`${expiresIn}s`)
     .setIssuer(`toph-project:${projectRef}`)
@@ -87,7 +87,7 @@ export async function generateApiKey(
     type: 'access',
     project_ref: projectRef,
   })
-    .setProtectedHeader({ alg: 'HS256' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuedAt()
     .setExpirationTime('10y')
     .setIssuer(`toph-project:${projectRef}`)

@@ -105,7 +105,6 @@ function buildOrderClause(order: ParsedOrder[], table: TableInfo): string {
 export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQuery {
   const qualifiedTable = quoteIdentifier(table.name);
 
-  // Column selection
   let selectColumns = '*';
   if (parsed.select) {
     validateColumns(parsed.select, table);
@@ -114,8 +113,6 @@ export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQu
 
   const { clause: whereClause, values } = buildWhereClause(parsed.filters, table, 0);
   const orderClause = buildOrderClause(parsed.order, table);
-
-  // Count query for pagination
   const limitClause = parsed.limit != null ? `LIMIT ${parsed.limit}` : 'LIMIT 100';
   const offsetClause = parsed.offset > 0 ? `OFFSET ${parsed.offset}` : '';
 
@@ -137,16 +134,63 @@ export function buildCountQuery(table: TableInfo, parsed: ParsedQuery): BuiltQue
   return { text, values };
 }
 
-export function buildInsertQuery(table: TableInfo, body: Record<string, unknown>): BuiltQuery {
+export function buildInsertQuery(table: TableInfo, rows: Record<string, unknown>[]): BuiltQuery {
+  if (rows.length === 0) throw new BadRequestError('Cannot insert empty array');
+
   const qualifiedTable = quoteIdentifier(table.name);
-  const keys = Object.keys(body);
+  const keys = Object.keys(rows[0]);
   validateColumns(keys, table);
 
   const columns = keys.map(k => quoteIdentifier(k)).join(', ');
-  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-  const values = keys.map(k => body[k]);
+  const values: unknown[] = [];
+  const rowPlaceholders: string[] = [];
 
-  const text = `INSERT INTO ${qualifiedTable} (${columns}) VALUES (${placeholders}) RETURNING *`;
+  for (const row of rows) {
+    const placeholders = keys.map((_, i) => `$${values.length + i + 1}`);
+    rowPlaceholders.push(`(${placeholders.join(', ')})`);
+    values.push(...keys.map(k => row[k]));
+  }
+
+  const text = `INSERT INTO ${qualifiedTable} (${columns}) VALUES ${rowPlaceholders.join(', ')} RETURNING *`;
+  return { text, values };
+}
+
+export function buildUpsertQuery(table: TableInfo, rows: Record<string, unknown>[], ignoreDuplicates: boolean): BuiltQuery {
+  if (rows.length === 0) throw new BadRequestError('Cannot upsert empty array');
+  if (table.primaryKey.length === 0) throw new BadRequestError(`Table '${table.name}' has no primary key for upsert`);
+
+  const qualifiedTable = quoteIdentifier(table.name);
+  const keys = Object.keys(rows[0]);
+  validateColumns(keys, table);
+
+  const columns = keys.map(k => quoteIdentifier(k)).join(', ');
+  const values: unknown[] = [];
+  const rowPlaceholders: string[] = [];
+
+  for (const row of rows) {
+    const placeholders = keys.map((_, i) => `$${values.length + i + 1}`);
+    rowPlaceholders.push(`(${placeholders.join(', ')})`);
+    values.push(...keys.map(k => row[k]));
+  }
+
+  const conflictTarget = table.primaryKey.map(k => quoteIdentifier(k)).join(', ');
+  let conflictClause: string;
+
+  if (ignoreDuplicates) {
+    conflictClause = `ON CONFLICT (${conflictTarget}) DO NOTHING`;
+  } else {
+    const updateKeys = keys.filter(k => !table.primaryKey.includes(k));
+    if (updateKeys.length === 0) {
+      conflictClause = `ON CONFLICT (${conflictTarget}) DO NOTHING`;
+    } else {
+      const updateClauses = updateKeys
+        .map(k => `${quoteIdentifier(k)} = EXCLUDED.${quoteIdentifier(k)}`)
+        .join(', ');
+      conflictClause = `ON CONFLICT (${conflictTarget}) DO UPDATE SET ${updateClauses}`;
+    }
+  }
+
+  const text = `INSERT INTO ${qualifiedTable} (${columns}) VALUES ${rowPlaceholders.join(', ')} ${conflictClause} RETURNING *`;
   return { text, values };
 }
 
