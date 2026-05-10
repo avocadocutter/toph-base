@@ -265,6 +265,8 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
   const body = (request.body ?? {}) as Record<string, unknown>;
   const args = Object.entries(body);
 
+  // Schema is always 'public'. PostgREST supports per-request schema via Content-Profile header
+  // but that requires schema allowlisting — not yet implemented.
   const quotedFn = `public.${quoteIdentifier(fnName)}`;
   let queryText: string;
   let queryValues: unknown[];
@@ -301,6 +303,14 @@ const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, 
         message: error.message,
         details: extra?.details ?? null,
         hint: extra?.hint ?? null,
+      });
+    }
+    if ((error as Error).name === 'ZodError') {
+      return reply.status(400).send({
+        code: 'PGRST',
+        message: 'Request validation failed',
+        details: (error as unknown as { issues: unknown[] }).issues,
+        hint: null,
       });
     }
     request.log.error(error);

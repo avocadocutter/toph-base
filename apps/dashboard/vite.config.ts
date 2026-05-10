@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
+const dashboardPort = parseInt(process.env.DASHBOARD_PORT ?? '3000', 10);
+const apiUrl = process.env.GATEWAY_URL ?? `http://localhost:${process.env.GATEWAY_PORT ?? '8000'}`;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -11,11 +14,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: dashboardPort,
     proxy: {
-      '/platform': 'http://localhost:8001',
-      '/project/': 'http://localhost:8001',
-      '/health': 'http://localhost:8001',
+      '/platform': apiUrl,
+      '/project/': apiUrl,
+      '/health': apiUrl,
     },
   },
 });

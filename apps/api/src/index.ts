@@ -26,14 +26,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 async function main() {
   const config = loadConfig();
 
-  // Log database credentials for debugging
-  console.log('Database credentials:');
-  console.log('  Host:', config.postgres.host);
-  console.log('  Port:', config.postgres.port);
-  console.log('  Database:', config.postgres.database);
-  console.log('  User:', config.postgres.user);
-  console.log('  Password:', config.postgres.password);
-
   const fastify = Fastify({
     logger: {
       level: config.server.logLevel,
@@ -214,10 +206,17 @@ async function main() {
   }
 
   // Bootstrap admin user
-  await bootstrapAdmin(db, config);
+  await bootstrapAdmin(db, config, fastify.log);
 
   // Graceful shutdown handlers
+  // process.once + flag guard: nodemon delivers both SIGINT (OS) and SIGTERM (nodemon)
+  // nearly simultaneously on Ctrl+C. once() removes the listener after first fire;
+  // the flag stops the second signal's handler from re-entering if it arrives before
+  // the first has finished.
+  let shutdownStarted = false;
   const shutdown = async () => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
     fastify.log.info('Shutting down gracefully...');
     setTimeout(() => {
       fastify.log.warn('Graceful shutdown timed out, forcing exit');
@@ -228,15 +227,19 @@ async function main() {
     process.exit(0);
   };
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 
   // Start server
   await fastify.listen({ port: config.server.port, host: config.server.host });
   fastify.log.info(`toph-base gateway running on http://${config.server.host}:${config.server.port}`);
 }
 
-async function bootstrapAdmin(db: import('./db/pool.js').DbPool, config: ReturnType<typeof loadConfig>) {
+async function bootstrapAdmin(
+  db: import('./db/pool.js').DbPool,
+  config: ReturnType<typeof loadConfig>,
+  log: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
+) {
   try {
     const existing = await db.query(
       'SELECT id FROM toph_internal.platform_users WHERE email = $1',
@@ -250,10 +253,10 @@ async function bootstrapAdmin(db: import('./db/pool.js').DbPool, config: ReturnT
          VALUES ($1, $2, 'admin', true)`,
         [config.admin.email, passwordHash],
       );
-      console.log(`Admin user created: ${config.admin.email}`);
+      log.info(`Admin user created: ${config.admin.email}`);
     }
   } catch (err) {
-    console.error('Failed to bootstrap admin user:', err);
+    log.error('Failed to bootstrap admin user', err);
   }
 }
 

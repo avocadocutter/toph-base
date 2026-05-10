@@ -1,4 +1,5 @@
 node_modules/
+migrations/projects/
 dist/
 .turbo/
 *.log

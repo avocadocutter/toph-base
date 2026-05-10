@@ -1,4 +1,4 @@
-.PHONY: install dev build test clean
+.PHONY: install dev build test clean lint
 
 node_modules: package.json $(wildcard pnpm-lock.yaml)
 	pnpm install
@@ -17,3 +17,6 @@ test: node_modules
 
 clean:
 	rm -rf dist
+
+lint: node_modules
+	pnpm lint

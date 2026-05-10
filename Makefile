@@ -1,6 +1,6 @@
-.PHONY: install dev build test clean \
-	dashboard/install dashboard/dev dashboard/build dashboard/clean \
-	api/install api/dev api/build api/test api/clean
+.PHONY: install dev build test lint clean docker/up \
+	dashboard/install dashboard/dev dashboard/build dashboard/clean dashboard/lint \
+	api/install api/dev api/build api/test api/clean api/lint
 
 # ── Orchestration ────────────────────────────────────────────
 
@@ -45,4 +45,15 @@ api/test:
 
 api/clean:
 	$(MAKE) -C apps/api clean
+
+api/lint:
+	$(MAKE) -C apps/api lint
+
+dashboard/lint:
+	$(MAKE) -C apps/dashboard lint
+
+lint: api/lint dashboard/lint
+
+docker/up:
+	dotenvx run -f ~/.secrets/toph-base.env -- docker compose up --build
 

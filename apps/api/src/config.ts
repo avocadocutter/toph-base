@@ -9,13 +9,13 @@ const configSchema = z.object({
     password: z.string().min(1, 'POSTGRES_PASSWORD is required'),
   }),
   jwt: z.object({
-    platformSecret: z.string().min(32).default('change-this-to-a-random-string-at-least-32-chars'),
+    platformSecret: z.string().min(32, 'JWT_PLATFORM_SECRET is required and must be at least 32 characters'),
     accessTokenExpiry: z.coerce.number().default(3600),
     refreshTokenExpiry: z.coerce.number().default(604800),
   }),
   admin: z.object({
     email: z.string().email().default('admin@toph.local'),
-    password: z.string().min(8).default('changeme'),
+    password: z.string().min(8, 'ADMIN_PASSWORD is required and must be at least 8 characters'),
   }),
   server: z.object({
     port: z.coerce.number().default(8000),
