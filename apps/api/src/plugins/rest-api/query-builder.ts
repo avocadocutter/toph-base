@@ -4,12 +4,11 @@
  * Builds parameterized SQL strings from a ParsedQuery object.
  * All user input arrives pre-validated; column names are quoted via quoteIdentifier().
  *
- * To add a new filter operator: add a case in buildWhereClause().
- * To add relationship embedding: extend buildSelectQuery() to emit JOINs
- *   using the TableInfo.foreignKeys data (already fetched by schema introspection).
+ * To add a new filter operator: add a case in buildFilterExpr().
+ * To add relationship embedding: extend buildRelationSubquery() using TableInfo.foreignKeys.
  */
 
-import type { ParsedQuery, ParsedFilter, ParsedOrder } from './query-parser.js';
+import type { ParsedQuery, ParsedFilter, ParsedOrder, RelationSpec } from './query-parser.js';
 import type { TableInfo } from '../introspection/types.js';
 import { quoteIdentifier } from '../../lib/sql-helpers.js';
 import { BadRequestError } from '../../lib/errors.js';
@@ -28,82 +27,117 @@ function validateColumns(columns: string[], table: TableInfo) {
   }
 }
 
-function buildWhereClause(filters: ParsedFilter[], table: TableInfo, paramOffset: number): { clause: string; values: unknown[] } {
-  if (filters.length === 0) return { clause: '', values: [] };
+// Builds a single SQL condition expression from a ParsedFilter.
+// Mutates `values` by pushing consumed params. Returns the expression and how many params were consumed.
+function buildFilterExpr(
+  filter: ParsedFilter,
+  paramIndex: number,
+  values: unknown[],
+): { expr: string; consumed: number } {
+  const col = quoteIdentifier(filter.column);
+  let expr: string;
+  let consumed = 0;
 
-  validateColumns(filters.map(f => f.column), table);
+  switch (filter.operator) {
+    case 'eq':
+      values.push(filter.value);
+      expr = `${col} = $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'neq':
+      values.push(filter.value);
+      expr = `${col} != $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'gt':
+      values.push(filter.value);
+      expr = `${col} > $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'gte':
+      values.push(filter.value);
+      expr = `${col} >= $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'lt':
+      values.push(filter.value);
+      expr = `${col} < $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'lte':
+      values.push(filter.value);
+      expr = `${col} <= $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'like':
+      values.push(filter.value);
+      expr = `${col} LIKE $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'ilike':
+      values.push(filter.value);
+      expr = `${col} ILIKE $${paramIndex + 1}`;
+      consumed = 1;
+      break;
+    case 'is':
+      if (filter.value === 'null')        expr = `${col} IS NULL`;
+      else if (filter.value === 'true')   expr = `${col} IS TRUE`;
+      else if (filter.value === 'false')  expr = `${col} IS FALSE`;
+      else throw new BadRequestError(`Invalid 'is' value: ${filter.value}. Use null, true, or false.`);
+      consumed = 0;
+      break;
+    case 'in': {
+      const inValues = filter.value.replace(/^\(|\)$/g, '').split(',');
+      const placeholders = inValues.map((_, i) => `$${paramIndex + 1 + i}`);
+      expr = `${col} IN (${placeholders.join(', ')})`;
+      values.push(...inValues);
+      consumed = inValues.length;
+      break;
+    }
+    default:
+      throw new BadRequestError(`Invalid filter operator: ${(filter as ParsedFilter).operator}`);
+  }
 
-  const conditions: string[] = [];
+  if (filter.negate) expr = `NOT (${expr})`;
+  return { expr, consumed };
+}
+
+function buildWhereClause(
+  filters: ParsedFilter[],
+  orFilters: ParsedFilter[],
+  table: TableInfo,
+  paramOffset: number,
+): { clause: string; values: unknown[] } {
   const values: unknown[] = [];
   let paramIndex = paramOffset;
 
-  for (const filter of filters) {
-    const col = quoteIdentifier(filter.column);
-    paramIndex++;
-
-    switch (filter.operator) {
-      case 'eq':
-        conditions.push(`${col} = $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'neq':
-        conditions.push(`${col} != $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'gt':
-        conditions.push(`${col} > $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'gte':
-        conditions.push(`${col} >= $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'lt':
-        conditions.push(`${col} < $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'lte':
-        conditions.push(`${col} <= $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'like':
-        conditions.push(`${col} LIKE $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'ilike':
-        conditions.push(`${col} ILIKE $${paramIndex}`);
-        values.push(filter.value);
-        break;
-      case 'is':
-        if (filter.value === 'null') {
-          conditions.push(`${col} IS NULL`);
-          values.pop(); // don't need the param
-          paramIndex--;
-        } else if (filter.value === 'true') {
-          conditions.push(`${col} IS TRUE`);
-          values.pop();
-          paramIndex--;
-        } else if (filter.value === 'false') {
-          conditions.push(`${col} IS FALSE`);
-          values.pop();
-          paramIndex--;
-        } else {
-          throw new BadRequestError(`Invalid 'is' value: ${filter.value}. Use null, true, or false.`);
-        }
-        break;
-      case 'in': {
-        const inValues = filter.value.replace(/^\(|\)$/g, '').split(',');
-        const placeholders = inValues.map((_, i) => `$${paramIndex + i}`);
-        conditions.push(`${col} IN (${placeholders.join(', ')})`);
-        values.pop(); // remove the raw value
-        values.push(...inValues);
-        paramIndex += inValues.length - 1;
-        break;
-      }
+  const andConditions: string[] = [];
+  if (filters.length > 0) {
+    validateColumns(filters.map(f => f.column), table);
+    for (const filter of filters) {
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      andConditions.push(expr);
+      paramIndex += consumed;
     }
   }
 
-  return { clause: `WHERE ${conditions.join(' AND ')}`, values };
+  const orConditions: string[] = [];
+  if (orFilters.length > 0) {
+    validateColumns(orFilters.map(f => f.column), table);
+    for (const filter of orFilters) {
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      orConditions.push(expr);
+      paramIndex += consumed;
+    }
+  }
+
+  if (andConditions.length === 0 && orConditions.length === 0) return { clause: '', values };
+
+  const parts: string[] = [];
+  if (andConditions.length > 0) parts.push(andConditions.join(' AND '));
+  if (orConditions.length > 0) parts.push(`(${orConditions.join(' OR ')})`);
+
+  return { clause: `WHERE ${parts.join(' AND ')}`, values };
 }
 
 function buildOrderClause(order: ParsedOrder[], table: TableInfo): string {
@@ -113,7 +147,65 @@ function buildOrderClause(order: ParsedOrder[], table: TableInfo): string {
   return `ORDER BY ${parts.join(', ')}`;
 }
 
-export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQuery {
+// Builds a correlated subquery expression for an embedded relation.
+// Returns null if no FK relationship can be found in either direction.
+function buildRelationSubquery(
+  table: TableInfo,
+  rel: RelationSpec,
+  allTables: Map<string, TableInfo>,
+): string | null {
+  const relTable = allTables.get(rel.name);
+  if (!relTable) return null;
+
+  if (rel.columns) {
+    const validCols = new Set(relTable.columns.map(c => c.name));
+    for (const col of rel.columns) {
+      if (!validCols.has(col)) {
+        throw new BadRequestError(`Unknown column '${col}' in relation '${rel.name}'`);
+      }
+    }
+  }
+
+  const relColsSql = rel.columns
+    ? rel.columns.map(c => quoteIdentifier(c)).join(', ')
+    : '*';
+
+  const quotedRel   = quoteIdentifier(rel.name);
+  const quotedMain  = quoteIdentifier(table.name);
+  const alias       = quoteIdentifier(rel.name);
+
+  // Many-to-one: current table has FK → related table (e.g. posts.user_id → users.id)
+  const manyToOne = table.foreignKeys.find(fk => fk.foreignTable === rel.name);
+  if (manyToOne) {
+    const localCol   = quoteIdentifier(manyToOne.columnName);
+    const foreignCol = quoteIdentifier(manyToOne.foreignColumn);
+    return (
+      `(SELECT row_to_json(r) FROM ` +
+      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${foreignCol} = ${quotedMain}.${localCol} LIMIT 1) r) ` +
+      `AS ${alias}`
+    );
+  }
+
+  // One-to-many: related table has FK → current table (e.g. comments.post_id → posts.id)
+  const oneToMany = relTable.foreignKeys.find(fk => fk.foreignTable === table.name);
+  if (oneToMany) {
+    const relCol   = quoteIdentifier(oneToMany.columnName);
+    const localCol = quoteIdentifier(oneToMany.foreignColumn);
+    return (
+      `COALESCE((SELECT json_agg(row_to_json(r)) FROM ` +
+      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${relCol} = ${quotedMain}.${localCol}) r), '[]'::json) ` +
+      `AS ${alias}`
+    );
+  }
+
+  return null;
+}
+
+export function buildSelectQuery(
+  table: TableInfo,
+  parsed: ParsedQuery,
+  allTables?: Map<string, TableInfo>,
+): BuiltQuery {
   const qualifiedTable = quoteIdentifier(table.name);
 
   let selectColumns = '*';
@@ -122,13 +214,22 @@ export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQu
     selectColumns = parsed.select.map(c => quoteIdentifier(c)).join(', ');
   }
 
-  const { clause: whereClause, values } = buildWhereClause(parsed.filters, table, 0);
+  const relationExprs: string[] = [];
+  if (parsed.relations.length > 0 && allTables) {
+    for (const rel of parsed.relations) {
+      const expr = buildRelationSubquery(table, rel, allTables);
+      if (expr) relationExprs.push(expr);
+    }
+  }
+
+  const fullSelect = [selectColumns, ...relationExprs].join(', ');
+  const { clause: whereClause, values } = buildWhereClause(parsed.filters, parsed.orFilters, table, 0);
   const orderClause = buildOrderClause(parsed.order, table);
   const limitClause = parsed.limit != null ? `LIMIT ${parsed.limit}` : 'LIMIT 100';
   const offsetClause = parsed.offset > 0 ? `OFFSET ${parsed.offset}` : '';
 
   const text = [
-    `SELECT ${selectColumns} FROM ${qualifiedTable}`,
+    `SELECT ${fullSelect} FROM ${qualifiedTable}`,
     whereClause,
     orderClause,
     limitClause,
@@ -140,7 +241,7 @@ export function buildSelectQuery(table: TableInfo, parsed: ParsedQuery): BuiltQu
 
 export function buildCountQuery(table: TableInfo, parsed: ParsedQuery): BuiltQuery {
   const qualifiedTable = quoteIdentifier(table.name);
-  const { clause: whereClause, values } = buildWhereClause(parsed.filters, table, 0);
+  const { clause: whereClause, values } = buildWhereClause(parsed.filters, parsed.orFilters, table, 0);
   const text = `SELECT count(*)::int AS count FROM ${qualifiedTable} ${whereClause}`;
   return { text, values };
 }
@@ -174,7 +275,6 @@ export function buildUpsertQuery(
 ): BuiltQuery {
   if (rows.length === 0) throw new BadRequestError('Cannot upsert empty array');
 
-  // Conflict target: prefer explicit ?on_conflict columns, fall back to primary key
   const conflictCols = onConflictColumns && onConflictColumns.length > 0
     ? onConflictColumns
     : table.primaryKey;
@@ -226,8 +326,9 @@ export function buildUpdateQuery(
   table: TableInfo,
   body: Record<string, unknown>,
   filters: ParsedFilter[],
+  orFilters: ParsedFilter[] = [],
 ): BuiltQuery {
-  if (filters.length === 0) {
+  if (filters.length === 0 && orFilters.length === 0) {
     throw new BadRequestError('Update requires at least one filter');
   }
 
@@ -238,19 +339,23 @@ export function buildUpdateQuery(
   const setClauses = keys.map((k, i) => `${quoteIdentifier(k)} = $${i + 1}`);
   const setValues = keys.map(k => body[k]);
 
-  const { clause: whereClause, values: whereValues } = buildWhereClause(filters, table, keys.length);
+  const { clause: whereClause, values: whereValues } = buildWhereClause(filters, orFilters, table, keys.length);
 
   const text = `UPDATE ${qualifiedTable} SET ${setClauses.join(', ')} ${whereClause} RETURNING *`;
   return { text, values: [...setValues, ...whereValues] };
 }
 
-export function buildDeleteQuery(table: TableInfo, filters: ParsedFilter[]): BuiltQuery {
-  if (filters.length === 0) {
+export function buildDeleteQuery(
+  table: TableInfo,
+  filters: ParsedFilter[],
+  orFilters: ParsedFilter[] = [],
+): BuiltQuery {
+  if (filters.length === 0 && orFilters.length === 0) {
     throw new BadRequestError('Delete requires at least one filter');
   }
 
   const qualifiedTable = quoteIdentifier(table.name);
-  const { clause: whereClause, values } = buildWhereClause(filters, table, 0);
+  const { clause: whereClause, values } = buildWhereClause(filters, orFilters, table, 0);
 
   const text = `DELETE FROM ${qualifiedTable} ${whereClause} RETURNING *`;
   return { text, values };
