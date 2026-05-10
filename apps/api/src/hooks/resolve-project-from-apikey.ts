@@ -25,6 +25,15 @@ function isBrowserRequest(userAgent: string | undefined): boolean {
 export function createApikeyResolver(db: DbPool, poolManager?: ProjectPoolManager) {
   return async function resolveProjectFromApikey(request: FastifyRequest, _reply: FastifyReply) {
     const apikey = request.headers['apikey'] as string | undefined;
+
+    request.log.info({
+      hasApikey: !!apikey,
+      apikeyPreview: apikey ? `${apikey.substring(0, 20)}...` : null,
+      method: request.method,
+      url: request.url,
+      headers: Object.keys(request.headers),
+    }, 'resolveProjectFromApikey - start');
+
     if (!apikey) {
       throw new UnauthorizedError('Missing apikey header');
     }
@@ -35,6 +44,7 @@ export function createApikeyResolver(db: DbPool, poolManager?: ProjectPoolManage
 
     // Only accept new format keys (sb_publishable_* or sb_secret_*)
     if (!isNewFormatKey(apikey)) {
+      request.log.warn({ apikeyPreview: apikey.substring(0, 20) }, 'Invalid API key format');
       throw new UnauthorizedError('Invalid API key format. Only sb_publishable_* and sb_secret_* keys are supported.');
     }
 
@@ -57,6 +67,11 @@ export function createApikeyResolver(db: DbPool, poolManager?: ProjectPoolManage
        WHERE ak.key_value = $1 AND p.status = 'active'`,
       [apikey],
     );
+
+    request.log.info({
+      rowCount: result.rows.length,
+      apikeyPreview: apikey.substring(0, 20),
+    }, 'resolveProjectFromApikey - DB lookup result');
 
     if (result.rows.length === 0) {
       throw new UnauthorizedError('Invalid API key');

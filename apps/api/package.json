@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file .env src/index.ts",
+    "dev": "nodemon --exec 'tsx --env-file .env src/index.ts' --ext ts,json --ignore dist",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -32,6 +32,7 @@
     "@types/archiver": "^7.0.0",
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.0",
+    "nodemon": "^3.1.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
