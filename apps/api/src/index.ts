@@ -74,21 +74,20 @@ async function main() {
         return;
       }
 
-      // Allow subdomain-based project URLs and all localhost origins in development
       try {
         const originUrl = new URL(origin);
 
-        // In development, allow all localhost origins regardless of port
+        // Allow all localhost origins (any port) in development
         if (originUrl.hostname === 'localhost' || originUrl.hostname.endsWith('.localhost')) {
           callback(null, true);
           return;
         }
 
-        // In production, be more restrictive with the host check
-        const serverHost = config.server.host === '0.0.0.0' ? 'localhost' : config.server.host;
+        // Allow root domain and all project subdomains (e.g. *.tophbase.online)
+        const { rootDomain } = config.cors;
         if (
-          originUrl.hostname === serverHost &&
-          originUrl.port === config.server.port.toString()
+          rootDomain &&
+          (originUrl.hostname === rootDomain || originUrl.hostname.endsWith(`.${rootDomain}`))
         ) {
           callback(null, true);
           return;

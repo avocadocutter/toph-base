@@ -123,7 +123,7 @@ CREATE INDEX idx_api_keys_key_prefix ON toph_internal.api_keys (key_prefix, proj
 -- Migration tracking (platform + per-project)
 CREATE TABLE toph_internal.migrations (
     name         TEXT NOT NULL,
-    applied_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    applied_at   TIMESTAMPTZ,
     project_id   UUID REFERENCES toph_internal.projects(id) ON DELETE CASCADE,
     status       TEXT DEFAULT 'applied' CHECK (status IN ('pending', 'applied', 'failed')),
     error_message TEXT,

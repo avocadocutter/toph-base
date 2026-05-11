@@ -24,6 +24,7 @@ const configSchema = z.object({
   }),
   cors: z.object({
     allowedOrigins: z.string().default('http://localhost:3000'),
+    rootDomain: z.string().optional(),
   }),
   rateLimit: z.object({
     auth: z.coerce.number().default(5),
@@ -69,6 +70,7 @@ export function loadConfig(): Config {
     },
     cors: {
       allowedOrigins: env.CORS_ALLOWED_ORIGINS,
+      rootDomain: env.CORS_ROOT_DOMAIN,
     },
     rateLimit: {
       auth: env.RATE_LIMIT_AUTH,

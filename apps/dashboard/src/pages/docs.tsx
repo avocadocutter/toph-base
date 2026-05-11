@@ -7,16 +7,17 @@ import { useState } from 'react';
  * Format: https://{ref}.example.com
  */
 function formatProjectApiUrl(projectRef: string): string {
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
+  const { protocol, hostname } = window.location;
 
-  // API gateway runs on port 8000, not the dashboard port (3000)
-  const apiPort = '8000';
+  // Strip the dashboard subdomain (e.g. "app.tophbase.online" → "tophbase.online")
+  const parts = hostname.split('.');
+  const rootDomain = parts.length > 1 ? parts.slice(1).join('.') : hostname;
 
-  // Subdomain format: https://{ref}.example.com
-  const subdomain = `${projectRef}.${hostname}`;
+  // In dev (localhost), keep port 8000; in production use standard HTTPS port
+  const isLocalhost = rootDomain === 'localhost' || hostname === 'localhost';
+  const portSuffix = isLocalhost ? ':8000' : '';
 
-  return `${protocol}//${subdomain}:${apiPort}`;
+  return `${protocol}//${projectRef}.${rootDomain}${portSuffix}`;
 }
 
 export function DocsPage() {
@@ -85,7 +86,7 @@ export function DocsPage() {
               </p>
               <p className="text-xs text-blue-600/80 dark:text-blue-400/80">
                 Each project gets a unique subdomain:{' '}
-                <code className="rounded bg-blue-500/20 px-1">https://{'{ref}'}.{window.location.hostname}</code>
+                <code className="rounded bg-blue-500/20 px-1">https://{'{ref}'}.{window.location.hostname.split('.').slice(1).join('.') || window.location.hostname}</code>
                 <br />
                 <span className="mt-1 inline-block">
                   Your project ref: <code className="rounded bg-blue-500/20 px-1">{currentProject.ref}</code>

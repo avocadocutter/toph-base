@@ -16,7 +16,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().accessToken;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body != null ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string>),
   };
 

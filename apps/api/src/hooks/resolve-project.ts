@@ -66,7 +66,7 @@ export function createProjectResolver(db: DbPool, poolManager?: ProjectPoolManag
         if (parts.length >= 2) {
           // Check if first part looks like a project ref (not "www", "api", etc.)
           const subdomain = parts[0].split(':')[0]; // Remove port if present
-          if (subdomain && subdomain !== 'www' && subdomain !== 'api' && subdomain !== 'localhost') {
+          if (subdomain && !['www', 'api', 'app', 'localhost'].includes(subdomain)) {
             projectRef = subdomain;
           }
         }
