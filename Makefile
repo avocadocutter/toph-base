@@ -2,6 +2,8 @@
 	dashboard/install dashboard/dev dashboard/build dashboard/clean dashboard/lint \
 	api/install api/dev api/build api/test api/clean api/lint
 
+SECRETS ?= $(or $(TOPH_SECRETS),$(HOME)/.secrets/toph-base.env)
+
 # ── Orchestration ────────────────────────────────────────────
 
 install: api/install dashboard/install
@@ -55,5 +57,5 @@ dashboard/lint:
 lint: api/lint dashboard/lint
 
 docker/up:
-	dotenvx run -f ~/.secrets/toph-base.env -- docker compose up --build
+	dotenvx run -f $(SECRETS) -- docker compose up --build
 

@@ -21,7 +21,6 @@ WORKDIR /app
 COPY --from=api-builder /build/api/dist         ./apps/api/dist
 COPY --from=api-builder /build/api/node_modules ./apps/api/node_modules
 COPY --from=dashboard-builder /build/dashboard/dist ./apps/dashboard/dist
-COPY migrations/ ./migrations/
 
 EXPOSE 8000
 CMD ["node", "apps/api/dist/index.js"]

@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nodemon --exec 'dotenvx run -f ~/.secrets/toph-base.env -- tsx src/index.ts' --ext ts,json --ignore dist",
-    "build": "tsc",
-    "start": "dotenvx run -f ~/.secrets/toph-base.env -- node dist/index.js",
+    "dev": "nodemon --exec 'dotenvx run -f ${TOPH_SECRETS:-$HOME/.secrets/toph-base.env} -- tsx src/index.ts' --ext ts,json --ignore dist",
+    "build": "tsc && cp src/plugins/projects/project-template.sql dist/plugins/projects/project-template.sql",
+    "start": "dotenvx run -f ${TOPH_SECRETS:-$HOME/.secrets/toph-base.env} -- node dist/index.js",
     "test": "vitest run",
     "clean": "rm -rf dist",
     "lint": "eslint src/",

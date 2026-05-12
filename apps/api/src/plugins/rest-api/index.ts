@@ -265,7 +265,7 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
   const body = (request.body ?? {}) as Record<string, unknown>;
   const args = Object.entries(body);
 
-  // Schema is always 'public'. PostgREST supports per-request schema via Content-Profile header
+  // Schema is always 'public'. Content-Profile header for per-request schema switching
   // but that requires schema allowlisting — not yet implemented.
   const quotedFn = `public.${quoteIdentifier(fnName)}`;
   let queryText: string;
@@ -292,7 +292,7 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
 const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, opts) => {
   const { resolveFromApikey, resolveProject, authHook } = opts;
 
-  // Emit PostgREST-compatible flat error format so @supabase/postgrest-js can parse
+  // Emit Supabase JS client-compatible flat error format so @supabase/postgrest-js can parse
   // error.code / error.message / error.details / error.hint on every error response.
   fastify.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {

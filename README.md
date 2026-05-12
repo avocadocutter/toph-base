@@ -1,8 +1,15 @@
 # toph-base
 
+[![CI](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml/badge.svg)](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml)
+![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=claude&logoColor=fff)
+
 A self-hosted database platform with REST API, auth, and a web dashboard.
 
-Inspired by Supabase, toph-base gives you multi-tenant PostgreSQL projects, JWT authentication, row-level security, and a PostgREST-compatible REST API — all running on your own infrastructure.
+Inspired by Supabase, toph-base gives you multi-tenant PostgreSQL projects, JWT authentication, row-level security, and a Supabase-compatible REST API — all running on your own infrastructure.
+
+Built and maintained by [avocadocutter](https://github.com/avocadocutter). Early and evolving — expect rough edges. Issues and PRs are welcome.
+
+This project is built with AI assistance ([Claude Code](https://claude.ai/code)). All code is reviewed and understood by the maintainer before merge.
 
 ---
 
@@ -17,9 +24,9 @@ toph-base/
 └── Makefile          # Root orchestration targets
 ```
 
-- **apps/api** — the API gateway. Handles multi-tenant PostgreSQL connection pooling, JWT-based platform auth, per-project RLS enforcement, and a PostgREST-compatible REST API. Bootstraps an admin user on first boot. Serves the dashboard as static files in production.
+- **apps/api** — the API gateway. Handles multi-tenant PostgreSQL connection pooling, JWT-based platform auth, per-project RLS enforcement, and a Supabase-compatible REST API. Bootstraps an admin user on first boot. Serves the dashboard as static files in production.
 - **apps/dashboard** — the admin SPA. Lets you create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
-- **migrations/** — SQL files that initialize and evolve the `toph_internal` platform schema (users, projects, API keys, etc.). Applied manually with `psql`.
+- **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
 
 ---
 
@@ -28,6 +35,7 @@ toph-base/
 - Node.js >= 20
 - pnpm 10 (`npm install -g pnpm@10`)
 - PostgreSQL 13+ (local install or any accessible instance)
+- [dotenvx](https://dotenvx.com) (`npm install -g @dotenvx/dotenvx`)
 
 ---
 
@@ -36,62 +44,31 @@ toph-base/
 **1. Clone the repo**
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/avocadocutter/toph-base.git
 cd toph-base
 ```
 
 **2. Configure the API**
 
+This project uses [dotenvx](https://dotenvx.com) to load secrets from a file outside the repo so they can never be accidentally committed. Copy the example to a location of your choice outside the repo:
+
 ```bash
-cp apps/api/.env.example apps/api/.env
+cp apps/api/.env.example /your/secrets/toph-base.env
 ```
 
-Open `apps/api/.env` and set at minimum:
+By default `make dev` loads from `~/.secrets/toph-base.env`. To use a different path, set `TOPH_SECRETS` in your shell:
+
+```bash
+export TOPH_SECRETS=/your/secrets/toph-base.env
+```
+
+Open the file and set at minimum:
 
 - `JWT_PLATFORM_SECRET` — a random string of at least 32 characters. **No default; the server will refuse to start without it.**
 - `ADMIN_PASSWORD` — the password for the bootstrap admin account. **No default.**
 - `POSTGRES_*` — update host, port, database, user, and password to match your PostgreSQL instance.
 
-**3. Initialize the database**
-
-Create the database and run the platform migrations:
-
-```bash
-# Create the database (if it doesn't exist)
-createdb toph
-
-# Apply the platform schema
-psql -d toph -f migrations/init.sql
-psql -d toph -f migrations/002_api_keys.sql
-psql -d toph -f migrations/003_remove_legacy_keys.sql
-psql -d toph -f migrations/005_project_migrations.sql
-psql -d toph -f migrations/006_fix_migrations_unique_constraint.sql
-psql -d toph -f migrations/007_database_per_project.sql
-psql -d toph -f migrations/008_toph_superuser.sql
-```
-
-**4. Install dependencies**
-
-```bash
-make install
-```
-
-**5. Start both apps**
-
-```bash
-make dev
-```
-
-- Dashboard: http://localhost:3000
-- API: http://localhost:8000
-
-Log in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you configured.
-
----
-
-## Environment Variables
-
-All variables are read from `apps/api/.env`. The API uses Node.js's native `--env-file` flag.
+Full reference:
 
 | Variable | Required | Description | Example |
 |---|---|---|---|
@@ -113,9 +90,41 @@ All variables are read from `apps/api/.env`. The API uses Node.js's native `--en
 | `RATE_LIMIT_API` | No | Max API requests per minute | `100` |
 | `ENABLE_SIGNUP` | No | Allow new platform user sign-ups | `true` |
 | `REQUIRE_AUTH_FOR_API` | No | Require authentication on REST API endpoints | `true` |
-| `POSTGREST_HEALTH_CHECK_INTERVAL_MS` | No | Interval between PostgREST health checks | `30000` |
-| `POSTGREST_HEALTH_CHECK_TIMEOUT_MS` | No | Timeout for PostgREST health checks | `5000` |
 | `PUBLIC_API_URL` | No | Base domain for project-specific API URLs. Requires wildcard DNS in production. | `http://localhost:8000` |
+
+**3. Initialize the database**
+
+**Option A — Docker (recommended)**
+
+Starts PostgreSQL and applies the platform schema automatically:
+
+```bash
+docker compose up -d
+```
+
+**Option B — Local PostgreSQL**
+
+```bash
+createdb toph
+psql -U postgres -d toph -f migrations/schema.sql
+```
+
+**4. Install dependencies**
+
+```bash
+make install
+```
+
+**5. Start both apps**
+
+```bash
+make dev
+```
+
+- Dashboard: http://localhost:3000
+- API: http://localhost:8000
+
+Log in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you configured.
 
 ---
 
@@ -142,12 +151,6 @@ All variables are read from `apps/api/.env`. The API uses Node.js's native `--en
 | `make dashboard/dev` | Start the dashboard only |
 | `make dashboard/build` | Build the dashboard only |
 | `make dashboard/clean` | Clean dashboard build artifacts |
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

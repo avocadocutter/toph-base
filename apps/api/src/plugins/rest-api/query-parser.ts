@@ -1,7 +1,7 @@
 /**
  * query-parser.ts
  *
- * Converts PostgREST-style HTTP query params into a structured ParsedQuery object.
+ * Converts Supabase-compatible HTTP query params into a structured ParsedQuery object.
  * This is a pure transformation step — no SQL, no DB access.
  *
  * To add a new filter operator:

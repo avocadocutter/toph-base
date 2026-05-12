@@ -173,7 +173,7 @@ const projectsPlugin: FastifyPluginAsync = async (fastify) => {
       await fastify.db.query(`CREATE DATABASE ${quoteIdentifier(dbName)}`);
 
       // Initialize the project database with the template
-      const templatePath = join(dirname(fileURLToPath(import.meta.url)), '../../../../../migrations', 'project-template.sql');
+      const templatePath = join(dirname(fileURLToPath(import.meta.url)), 'project-template.sql');
       const templateSql = await readFile(templatePath, 'utf-8');
       const projectPool = poolManager.getProjectPool(dbName);
       await projectPool.query(templateSql);
