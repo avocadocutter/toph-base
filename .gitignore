@@ -10,5 +10,5 @@ dist/
 coverage/
 .vite/
 .mcp.json
-.claude/settings.local.json
+.claude/
 NOTES.txt
