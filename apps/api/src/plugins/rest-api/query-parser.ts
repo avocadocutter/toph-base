@@ -175,8 +175,9 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     const raw = querystring.or;
     const stripped = raw.startsWith('(') && raw.endsWith(')') ? raw.slice(1, -1) : raw;
     for (const item of splitAtDepth0(stripped)) {
-      // Skip nested and()/or() groups — not supported
-      if (item.startsWith('and(') || item.startsWith('or(')) continue;
+      if (item.startsWith('and(') || item.startsWith('or(')) {
+        throw new BadRequestError(`Nested and()/or() groups are not supported in ?or filters`);
+      }
       parsed.orFilters.push(parseOrItem(item));
     }
   }
