@@ -47,7 +47,7 @@
     "@typescript-eslint/eslint-plugin": "~8.x",
     "@typescript-eslint/parser": "~8.x",
     "@vitejs/plugin-react": "^4.3.0",
-    "autoprefixer": "^10.4.0",
+    "autoprefixer": "^10.5.0",
     "eslint": "~9.x",
     "eslint-plugin-react-hooks": "~5.x",
     "eslint-plugin-react-refresh": "~0.4.x",
