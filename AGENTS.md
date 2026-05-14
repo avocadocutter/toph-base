@@ -69,9 +69,9 @@ apps/dashboard/src/
 
 ## Testing
 
-Tests live in `apps/api/src/**/*.test.ts` and run with `vitest`. No tests exist yet — the infrastructure is in place but coverage is zero.
+Tests live in `apps/api/src/**/*.test.ts` and run with `vitest`.
 
-When writing tests: start a real Fastify instance against a real PostgreSQL database. Connection details from the `env:` block in `.github/workflows/ci.yml`. Don't mock the database.
+When writing tests: start a real Fastify instance. Mock the database and any external dependencies — pass stub implementations via Fastify decorators or plugin options rather than connecting to a real PostgreSQL instance.
 
 ## Security-sensitive areas
 

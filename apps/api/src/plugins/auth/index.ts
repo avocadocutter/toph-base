@@ -79,10 +79,27 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // POST /auth/v1/logout — JWT-gated, uses global rate limit (no per-route override)
-  fastify.post('/auth/v1/logout', {
-    preHandler: [resolveProject, authenticateProject],
-  }, projectSignoutHandler);
+  // POST /auth/v1/logout — scoped so we can override the JSON parser.
+  // @supabase/auth-js sends Content-Type: application/json with no body (JSON.stringify(undefined) = undefined),
+  // which Fastify's default parser rejects. Accept empty bodies as {}.
+  fastify.register(async function logoutScope(scope) {
+    scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+      if (!body || (body as string).trim() === '') {
+        done(null, {});
+      } else {
+        try {
+          done(null, JSON.parse(body as string));
+        } catch {
+          const e = new Error('Invalid JSON body') as Error & { statusCode: number };
+          e.statusCode = 400;
+          done(e, undefined);
+        }
+      }
+    });
+    scope.post('/auth/v1/logout', {
+      preHandler: [resolveProject, authenticateProject],
+    }, projectSignoutHandler);
+  });
 
   // GET /auth/v1/user — JWT-gated read, uses global rate limit (no per-route override).
   // Called on every page load by the Supabase client; a per-route auth limit would block normal browsing.
