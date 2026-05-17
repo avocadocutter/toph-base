@@ -1,16 +1,14 @@
 #!/usr/bin/env node
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const [,, cmd, ...args] = process.argv;
 
   switch (cmd) {
     case undefined:
-    case 'start':
-      return cmdStart();
+    case 'freshman':
+      return cmdFreshman();
+    case 'graduate':
+      return cmdGraduate(args);
     case 'schema':
       return cmdSchema(args);
     case '--help':
@@ -24,19 +22,20 @@ async function main() {
   }
 }
 
-async function cmdStart() {
-  // Delegate to the main server
-  const serverPath = path.resolve(__dirname, '../index.js');
-  await import(serverPath);
+async function cmdFreshman() {
+  const { start } = await import('../server.js');
+  await start();
+}
+
+async function cmdGraduate(args: string[]) {
+  const { cmdGraduate: graduate } = await import('./graduate.js');
+  await graduate(args);
 }
 
 async function cmdSchema(args: string[]) {
   const subcmd = args[0];
   if (subcmd === 'refresh' || !subcmd) {
-    const { buildConfig } = await import('../config.js');
-    const { loadOrCreateProjectConfig } = await import('../lib/project-config.js');
-    const { PGliteStore } = await import('../db/pglite-store.js');
-    const { generateSchemaMd } = await import('../lib/schema-md.js');
+    const { buildConfig, loadOrCreateProjectConfig, PGliteStore, generateSchemaMd } = await import('@tophbase/api');
     const fs = (await import('node:fs/promises')).default;
     const path = (await import('node:path')).default;
     const os = (await import('node:os')).default;
@@ -44,7 +43,7 @@ async function cmdSchema(args: string[]) {
     const projectName = process.env.TOPHBASE_PROJECT ?? 'default';
     const dataDir = process.env.TOPHBASE_DATA_DIR ?? path.join(os.homedir(), '.tophbase', 'projects', projectName);
     const projectConfig = await loadOrCreateProjectConfig(dataDir);
-    const config = buildConfig(projectConfig, projectName);
+    buildConfig(projectConfig, projectName);
     const pgliteDir = path.join(dataDir, 'data');
     const store = new PGliteStore(pgliteDir);
     await store.init();
@@ -64,16 +63,20 @@ function printHelp() {
   tophbase — local Supabase-compatible backend
 
   COMMANDS
-    start                  Start the backend server (default)
-    schema refresh         Regenerate SCHEMA.md from current database schema
+    freshman                         Start the local backend server (default)
+    graduate --provider <provider>   Deploy local data to a cloud Postgres
+    schema refresh                   Regenerate SCHEMA.md from current database schema
+
+  PROVIDERS
+    railway   supabase   neon   postgres
 
   OPTIONS
-    --help, -h             Show this help message
+    --help, -h   Show this help message
 
   EXAMPLES
-    tophbase start
-    tophbase schema refresh
-    npx tophbase start
+    tophbase freshman
+    tophbase graduate --provider railway
+    npx tophbase
 `);
 }
 
