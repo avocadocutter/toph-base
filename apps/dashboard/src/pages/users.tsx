@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
-import { useProjectStore } from '@/stores/project-store';
 import type { UserRecord, PaginatedResponse } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -34,15 +33,13 @@ export function UsersPage() {
   const [resetPasswordEmail, setResetPasswordEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const queryClient = useQueryClient();
-  const currentProject = useProjectStore((s) => s.currentProject);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-users', currentProject?.ref, search],
+    queryKey: ['admin-users', search],
     queryFn: () =>
       api.get<PaginatedResponse<UserRecord>>(
         projectAdminPath(`/users?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`),
       ),
-    enabled: !!currentProject,
   });
 
   const toggleDisable = useMutation({

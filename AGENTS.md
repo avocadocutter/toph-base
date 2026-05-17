@@ -6,24 +6,35 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, Copilot, Gemini, etc.
 
 ## What this repo is
 
-A self-hosted database platform with REST API, authentication, and a web dashboard. Inspired by Supabase. Built and maintained by one person.
+Vibebase — a zero-config local BaaS (Backend-as-a-Service) for AI-generated apps. Run `npx vibebase start`, pick your SDK dialect in the onboarding UI, and your AI-generated Supabase/PocketBase/Appwrite code works against localhost with no Docker, no account, no setup.
 
 Two apps, one repo:
-- `apps/api` — Fastify 5 + TypeScript API gateway (auth, multi-tenant PostgreSQL pooling, Supabase-compatible REST API)
-- `apps/dashboard` — React 19 + Vite + TailwindCSS admin SPA
+- `apps/api` — Fastify 5 + TypeScript + PGLite (embedded WASM PostgreSQL). Serves the Supabase-compatible REST + auth API.
+- `apps/dashboard` — React 19 + Vite + TailwindCSS. Studio UI + first-run onboarding dialect picker.
 
 ## Commands
 
 ```sh
-make install          # install dependencies for both apps
-make dev              # start both apps in parallel (API :8000, dashboard :3000)
-make build            # build both apps for production
-make test             # run the API test suite (vitest)
-make api/dev          # API only
-make dashboard/dev    # dashboard only
+# Install dependencies
+cd apps/api && pnpm install
+cd apps/dashboard && pnpm install
+
+# Development (run both in separate terminals)
+cd apps/api && pnpm dev        # API on :8000
+cd apps/dashboard && pnpm dev  # Dashboard on :3000
+
+# Or start as a user would
+cd apps/api && pnpm tsx src/cli/vibebase.ts start
+
+# Tests (API only, vitest)
+cd apps/api && pnpm test
+
+# Build
+cd apps/api && pnpm build
+cd apps/dashboard && pnpm build
 ```
 
-The API requires secrets loaded via `dotenvx` from `~/.secrets/toph-base.env`. See `apps/api/.env.example` for all required variables.
+No Make, no Docker, no PostgreSQL server required. PGLite runs in-process.
 
 ## Project structure
 
@@ -82,3 +93,21 @@ These files touch auth, keys, or RLS — be careful and conservative here:
 - `apps/api/src/plugins/api-keys/index.ts` — key generation and validation
 - `apps/api/src/plugins/rest-api/rls-context.ts` — per-request RLS injection
 - `apps/api/src/hooks/authenticate.ts` — request authentication hook
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore

@@ -3,29 +3,60 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
-import { loadConfig } from './config.js';
-import { ProjectPoolManager } from './db/pool-manager.js';
-import { initPlatformJwt } from './plugins/auth/jwt.js';
-import { authenticatePlatform, authenticateProject, authenticateProjectOptional } from './hooks/authenticate.js';
-import { createApikeyResolver } from './hooks/resolve-project-from-apikey.js';
-import { createProjectResolver } from './hooks/resolve-project.js';
-import { hashPassword } from './plugins/auth/password.js';
+import { buildConfig } from './config.js';
+import { loadOrCreateProjectConfig } from './lib/project-config.js';
+import type { Dialect } from './lib/project-config.js';
+import { PGliteStore } from './db/pglite-store.js';
+import { runBootstrapMigrations } from './db/migrations.js';
+import { authenticateProject, authenticateProjectOptional } from './hooks/authenticate.js';
+import { resolveLocalProject } from './hooks/resolve-project.js';
 import { AppError } from './lib/errors.js';
-import multipart from '@fastify/multipart';
 import authPlugin from './plugins/auth/index.js';
 import introspectionPlugin from './plugins/introspection/index.js';
 import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
-import adminPlugin from './plugins/admin/index.js';
-import projectsPlugin from './plugins/projects/index.js';
-import apiKeysPlugin from './plugins/api-keys/index.js';
+import realtimePlugin from './plugins/realtime/index.js';
+import vibebasePlugin from './plugins/vibebase/index.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import { exec } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const config = loadConfig();
+  const projectName = process.env.VIBEBASE_PROJECT ?? 'default';
+  const dataDir = process.env.VIBEBASE_DATA_DIR ?? path.join(os.homedir(), '.vibebase', 'projects', projectName);
+
+  // Load or create project config (generates secrets on first run)
+  await fs.mkdir(dataDir, { recursive: true });
+  const projectConfig = await loadOrCreateProjectConfig(dataDir);
+  const config = buildConfig(projectConfig, projectName);
+
+  // PGLite needs its own subdirectory — the parent dataDir holds the JSON config file
+  const pgliteDir = path.join(dataDir, 'data');
+  await fs.mkdir(pgliteDir, { recursive: true });
+
+  // Initialize PGLite storage — this may take 100-300ms on first run (WASM load)
+  const store = new PGliteStore(pgliteDir);
+  try {
+    await store.init();
+  } catch (err) {
+    const nodeVersion = process.version;
+    const major = parseInt(nodeVersion.slice(1).split('.')[0], 10);
+    if (major < 18) {
+      console.error(`vibebase: requires Node.js 18+. You are running ${nodeVersion}.`);
+      console.error(`Fix: nvm install 18 && nvm use 18`);
+    } else {
+      console.error(`vibebase: failed to initialize storage at ${config.project.dataDir}`);
+      console.error(`Error: ${(err as Error).message}`);
+      console.error(`Check that ${config.project.dataDir} is writable.`);
+    }
+    process.exit(1);
+  }
+
+  await runBootstrapMigrations(store);
 
   const fastify = Fastify({
     logger: {
@@ -36,72 +67,17 @@ async function main() {
     },
   });
 
-  // Create pool manager (platform + per-project pools)
-  const poolManager = new ProjectPoolManager(config.postgres, {
-    maxPools: config.poolManager.maxPools,
-    idleEvictionMs: config.poolManager.idleEvictionMs,
-    projectPoolSize: config.poolManager.projectPoolSize,
-  });
-  const db = poolManager.getPlatformPool();
-
-  // Decorate fastify with shared instances
-  fastify.decorate('db', db);
+  // Single-project mode: db IS the project database
+  fastify.decorate('db', store);
   fastify.decorate('config', config);
-  fastify.decorate('authenticate', authenticatePlatform);
-  fastify.decorate('projectPoolManager', poolManager);
+  fastify.decorate('authenticate', authenticateProject);
 
-  // Initialize platform JWT
-  initPlatformJwt(config);
+  // Track dialect on the fastify instance for the vibebase status endpoint
+  (fastify as unknown as { _vibebaseDialect: Dialect | null })._vibebaseDialect = projectConfig.dialect;
 
-  // Register global plugins
-  await fastify.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
-
+  // Global plugins
   await fastify.register(cors, {
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl)
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      fastify.log.debug({ origin }, 'CORS origin check');
-
-      const allowedOrigins = config.cors.allowedOrigins.split(',').map(s => s.trim());
-
-      // Check if origin is in the allowed list
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      try {
-        const originUrl = new URL(origin);
-
-        // Allow all localhost origins (any port) in development
-        if (originUrl.hostname === 'localhost' || originUrl.hostname.endsWith('.localhost')) {
-          callback(null, true);
-          return;
-        }
-
-        // Allow root domain and all project subdomains (e.g. *.tophbase.online)
-        const { rootDomain } = config.cors;
-        if (
-          rootDomain &&
-          (originUrl.hostname === rootDomain || originUrl.hostname.endsWith(`.${rootDomain}`))
-        ) {
-          callback(null, true);
-          return;
-        }
-      } catch (err) {
-        fastify.log.warn({ origin, err }, 'Invalid origin URL');
-        callback(new Error('Not allowed by CORS'), false);
-        return;
-      }
-
-      // Reject all other origins
-      fastify.log.warn({ origin }, 'Origin not allowed by CORS');
-      callback(new Error('Not allowed by CORS'), false);
-    },
+    origin: config.cors.allowedOrigins === '*' ? true : config.cors.allowedOrigins.split(',').map(s => s.trim()),
     credentials: true,
     allowedHeaders: [
       'Content-Type',
@@ -117,9 +93,7 @@ async function main() {
     exposedHeaders: ['Content-Range', 'X-Total-Count', 'Content-Profile'],
   });
 
-  await fastify.register(helmet, {
-    contentSecurityPolicy: false,
-  });
+  await fastify.register(helmet, { contentSecurityPolicy: false });
 
   await fastify.register(rateLimit, {
     max: config.rateLimit.api,
@@ -132,137 +106,101 @@ async function main() {
       reply.status(error.statusCode).send(error.toJSON());
       return;
     }
-
-    // Zod validation errors
     if (error.name === 'ZodError') {
-      reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Request validation failed',
-          details: (error as unknown as { issues: unknown[] }).issues,
-        },
-      });
+      reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: (error as unknown as { issues: unknown[] }).issues } });
       return;
     }
-
-    // @fastify/rate-limit errors
-    const fastifyError = error as Error & { statusCode?: number };
-    if (fastifyError.statusCode === 429) {
-      reply.status(429).send({
-        error: {
-          code: 'RATE_LIMITED',
-          message: error.message,
-        },
-      });
+    const fe = error as Error & { statusCode?: number };
+    if (fe.statusCode === 429) {
+      reply.status(429).send({ error: { code: 'RATE_LIMITED', message: error.message } });
       return;
     }
-
     request.log.error(error);
-    reply.status(500).send({
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
-      },
-    });
+    reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message } });
   });
 
-  // Register application plugins
+  fastify.get('/health', async () => {
+    let dbVersion = 'unknown';
+    try {
+      const result = await store.query<{ version: string }>('SELECT version()');
+      dbVersion = result.rows[0]?.version ?? 'unknown';
+    } catch { /* ignore */ }
+    return { ok: true, version: dbVersion };
+  });
+
+  // Application plugins
+  await fastify.register(vibebasePlugin);
+  await fastify.register(realtimePlugin);
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
-  await fastify.register(projectsPlugin);
-  await fastify.register(apiKeysPlugin);
   await fastify.register(restApiPlugin, {
-    resolveFromApikey: createApikeyResolver(db, poolManager),
-    resolveProject:    createProjectResolver(db, poolManager),
-    authHook:          config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional,
+    resolveFromApikey: resolveLocalProject,
+    resolveProject: resolveLocalProject,
+    authHook: config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional,
   });
   await fastify.register(rlsPlugin);
-  await fastify.register(adminPlugin);
 
-  // Serve dashboard static files if they exist
-  const dashboardPath = path.resolve(__dirname, '../../dashboard/dist');
+  // Serve dashboard static files.
+  // Two layouts:
+  //   repo dev:  apps/api/src/__dirname → ../../dashboard/dist = apps/dashboard/dist
+  //   npm pkg:   apps/api/dist/__dirname → ../dashboard = bundled dashboard/
+  const dashboardCandidates = [
+    path.resolve(__dirname, '../dashboard'),          // npm package layout
+    path.resolve(__dirname, '../../dashboard/dist'),  // repo layout
+  ];
+  const dashboardPath = (await Promise.all(
+    dashboardCandidates.map(p => fs.access(p).then(() => p).catch(() => null))
+  )).find(Boolean) ?? dashboardCandidates[1];
   try {
+    await fs.access(dashboardPath);
     await fastify.register(fastifyStatic, {
       root: dashboardPath,
       prefix: '/',
       wildcard: false,
       decorateReply: true,
     });
-
-    // SPA fallback — serve index.html for unknown routes
     fastify.setNotFoundHandler((request, reply) => {
-      if (
-        request.url.startsWith('/platform/') ||
-        request.url.startsWith('/project/') ||
-        request.url.startsWith('/rest/') ||
-        request.url.startsWith('/auth/') ||
-        request.url.startsWith('/health')
-      ) {
+      const apiPrefixes = ['/rest/', '/auth/', '/realtime/', '/health', '/vibebase/'];
+      if (apiPrefixes.some(p => request.url.startsWith(p))) {
         reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
       } else {
         reply.sendFile('index.html');
       }
     });
   } catch {
-    fastify.log.info('Dashboard static files not found, serving API only');
+    fastify.log.debug('Dashboard not built — serving API only');
   }
 
-  // Bootstrap admin user
-  await bootstrapAdmin(db, config, fastify.log);
-
-  // Graceful shutdown handlers
-  // process.once + flag guard: nodemon delivers both SIGINT (OS) and SIGTERM (nodemon)
-  // nearly simultaneously on Ctrl+C. once() removes the listener after first fire;
-  // the flag stops the second signal's handler from re-entering if it arrives before
-  // the first has finished.
-  let shutdownStarted = false;
+  // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async () => {
-    if (shutdownStarted) return;
-    shutdownStarted = true;
-    fastify.log.info('Shutting down gracefully...');
-    setTimeout(() => {
-      fastify.log.warn('Graceful shutdown timed out, forcing exit');
-      process.exit(1);
-    }, 5000).unref();
-    await poolManager.shutdown();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    fastify.log.info('Shutting down...');
+    setTimeout(() => process.exit(1), 5000).unref();
     await fastify.close();
+    await store.end();
     process.exit(0);
   };
-
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
 
-  // Start server
   await fastify.listen({ port: config.server.port, host: config.server.host });
-  fastify.log.info(`toph-base gateway running on http://${config.server.host}:${config.server.port}`);
-}
 
-async function bootstrapAdmin(
-  db: import('./db/pool.js').DbPool,
-  config: ReturnType<typeof loadConfig>,
-  log: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
-) {
-  try {
-    const existing = await db.query(
-      'SELECT id FROM toph_internal.platform_users WHERE email = $1',
-      [config.admin.email],
-    );
+  const url = `http://localhost:${config.server.port}`;
+  console.log('');
+  console.log(`  Vibebase running at ${url}`);
+  console.log(`  Publishable key: ${config.project.publishableKey}`);
+  console.log(`  Secret key:      ${config.project.secretKey}`);
+  console.log('');
 
-    if (existing.rows.length === 0) {
-      const passwordHash = await hashPassword(config.admin.password);
-      await db.query(
-        `INSERT INTO toph_internal.platform_users (email, password_hash, role, email_confirmed)
-         VALUES ($1, $2, 'admin', true)`,
-        [config.admin.email, passwordHash],
-      );
-      log.info(`Admin user created: ${config.admin.email}`);
-    }
-  } catch (err) {
-    log.error('Failed to bootstrap admin user', err);
-  }
+  // Open browser
+  const openCmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  exec(`${openCmd} ${url}`);
 }
 
 main().catch((err) => {
-  console.error('Failed to start toph-base:', err);
+  console.error('vibebase: failed to start');
+  console.error(err.message ?? err);
   process.exit(1);
 });

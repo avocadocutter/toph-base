@@ -1,7 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
-import { useProjectStore } from '@/stores/project-store';
 import type { TableDetail, PaginatedResponse, RlsPolicy } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -18,31 +17,29 @@ export function TableDetailPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('data');
   const queryClient = useQueryClient();
-  const currentProject = useProjectStore((s) => s.currentProject);
 
   const tableInfo = useQuery({
-    queryKey: ['admin-table', currentProject?.ref, table],
+    queryKey: ['admin-table', table],
     queryFn: () => api.get<TableDetail>(projectAdminPath(`/tables/${table}`)),
-    enabled: !!currentProject,
   });
 
   const tableData = useQuery({
-    queryKey: ['table-data', currentProject?.ref, table],
+    queryKey: ['table-data', table],
     queryFn: () => api.get<PaginatedResponse<Record<string, unknown>>>(projectAdminPath(`/tables/${table}/rows?limit=50`)),
-    enabled: activeTab === 'data' && !!currentProject,
+    enabled: activeTab === 'data',
   });
 
   const policies = useQuery({
-    queryKey: ['policies', currentProject?.ref, table],
+    queryKey: ['policies', table],
     queryFn: () => api.get<RlsPolicy[]>(projectAdminPath(`/rls/${table}/policies`)),
-    enabled: activeTab === 'rls' && !!currentProject,
+    enabled: activeTab === 'rls',
   });
 
   const toggleRls = useMutation({
     mutationFn: (enable: boolean) =>
       api.post(projectAdminPath(`/rls/${table}/${enable ? 'enable' : 'disable'}`)),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-table', currentProject?.ref, table] });
+      queryClient.invalidateQueries({ queryKey: ['admin-table', table] });
       toast.success('RLS updated');
     },
     onError: (err) => toast.error(err.message),

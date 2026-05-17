@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
-import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -47,14 +46,12 @@ const columns: ColumnDef<TableSummary, unknown>[] = [
 export function TablesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const currentProject = useProjectStore((s) => s.currentProject);
   const [showCreate, setShowCreate] = useState(false);
   const [newTableName, setNewTableName] = useState('');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-tables', currentProject?.ref],
+    queryKey: ['admin-tables'],
     queryFn: () => api.get<TableSummary[]>(projectAdminPath('/tables')),
-    enabled: !!currentProject,
   });
 
   const createTable = useMutation({

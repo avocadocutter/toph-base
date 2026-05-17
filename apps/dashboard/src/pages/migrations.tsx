@@ -16,8 +16,6 @@ import {
   DialogFooter,
 } from '../components/ui/dialog';
 import { api, projectAdminPath } from '../lib/api-client';
-import { useProjectStore } from '../stores/project-store';
-import { useAuthStore } from '../stores/auth-store';
 import { toast } from 'sonner';
 import type { Migration, MigrationListResponse, ApplyMigrationsResponse } from '../types';
 
@@ -31,7 +29,6 @@ type UploadDialogState =
 export function MigrationsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const currentProject = useProjectStore((s) => s.currentProject);
   const [selectedMigrations, setSelectedMigrations] = useState<Set<string>>(new Set());
   const [uploadDialog, setUploadDialog] = useState<UploadDialogState>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -39,9 +36,8 @@ export function MigrationsPage() {
 
   // Fetch migrations
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-migrations', currentProject?.ref],
+    queryKey: ['admin-migrations'],
     queryFn: () => api.get<MigrationListResponse>(projectAdminPath('/migrations')),
-    enabled: !!currentProject,
   });
 
   // Apply selected mutations
@@ -83,26 +79,13 @@ export function MigrationsPage() {
 
   // Download all migrations
   const handleDownloadMigrations = async () => {
-    if (!currentProject) return;
-
     try {
-      // Get the auth token from the store
-      const token = useAuthStore.getState().accessToken;
-      const url = `/platform/projects/${currentProject.ref}/admin/migrations/download`;
+      const url = projectAdminPath('/migrations/download');
 
       // Fetch the zip file
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await fetch(url);
 
       if (!response.ok) {
-        if (response.status === 401) {
-          useAuthStore.getState().logout();
-          window.location.href = '/login';
-          throw new Error('Unauthorized');
-        }
         throw new Error('Failed to download migrations');
       }
 
@@ -115,7 +98,7 @@ export function MigrationsPage() {
       // Create a temporary anchor element and trigger download
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `${currentProject.ref}-migrations.zip`;
+      a.download = `vibebase-migrations.zip`;
       document.body.appendChild(a);
       a.click();
 
@@ -130,25 +113,16 @@ export function MigrationsPage() {
   };
 
   const uploadFiles = async (files: File[], replace = false) => {
-    if (!currentProject) return;
     setIsUploading(true);
     try {
-      const token = useAuthStore.getState().accessToken;
       const formData = new FormData();
       if (replace) formData.append('replace', 'true');
       for (const file of files) formData.append('files', file);
 
-      const response = await fetch(`/platform/projects/${currentProject.ref}/admin/migrations/upload`, {
+      const response = await fetch(projectAdminPath('/migrations/upload'), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-
-      if (response.status === 401) {
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
-        return;
-      }
 
       const body = await response.json();
 
@@ -299,7 +273,7 @@ export function MigrationsPage() {
         <div>
           <h1 className="text-lg font-bold">Migrations</h1>
           <p className="text-sm text-muted-foreground">
-            Manage database migrations for {currentProject?.name}
+            Manage database migrations
           </p>
         </div>
         <div className="flex gap-2">

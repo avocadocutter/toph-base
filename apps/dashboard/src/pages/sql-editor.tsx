@@ -1,7 +1,6 @@
 import { useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { api, projectAdminPath, ApiError } from '@/lib/api-client';
-import { useProjectStore } from '@/stores/project-store';
 import { useResolvedTheme } from '@/stores/ui-store';
 import { SqlEditor } from '@/components/sql-editor/sql-editor';
 import { DataTable } from '@/components/data-table/data-table';
@@ -24,7 +23,6 @@ interface PgError {
 }
 
 export function SqlEditorPage() {
-  const currentProject = useProjectStore((s) => s.currentProject);
   const resolvedTheme = useResolvedTheme();
   const editorViewRef = useRef<EditorView | null>(null);
 
@@ -95,7 +93,7 @@ export function SqlEditorPage() {
             <Button
               size="sm"
               onClick={() => handleExecute()}
-              disabled={executeSql.isPending || !currentProject}
+              disabled={executeSql.isPending}
               className="h-7 gap-1.5 px-2.5 text-xs"
             >
               {executeSql.isPending

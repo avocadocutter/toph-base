@@ -7,13 +7,11 @@ import { SqlEditor } from '../components/sql-editor/sql-editor';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { api, projectAdminPath } from '../lib/api-client';
-import { useProjectStore } from '../stores/project-store';
 import { toast } from 'sonner';
 import type { MigrationListResponse } from '../types';
 
 export function MigrationNewPage() {
   const navigate = useNavigate();
-  const currentProject = useProjectStore((s) => s.currentProject);
   const editorViewRef = useRef<EditorView | null>(null);
 
   const [name, setName] = useState('');
@@ -21,9 +19,8 @@ export function MigrationNewPage() {
 
   // Fetch existing migrations to suggest next number
   const { data: migrations } = useQuery({
-    queryKey: ['admin-migrations', currentProject?.ref],
+    queryKey: ['admin-migrations'],
     queryFn: () => api.get<MigrationListResponse>(projectAdminPath('/migrations')),
-    enabled: !!currentProject,
   });
 
   // Auto-suggest next migration name

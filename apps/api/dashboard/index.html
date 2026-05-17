@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>toph-base</title>
+    <script>
+      (function () {
+        try {
+          var stored = JSON.parse(localStorage.getItem('toph-ui') || '{}');
+          var theme = (stored.state && stored.state.theme) || 'dark';
+          var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-C1UwmaJw.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Cleqyiqj.css">
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <div id="root"></div>
+  </body>
+</html>

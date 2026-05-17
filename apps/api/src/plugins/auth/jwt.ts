@@ -1,40 +1,6 @@
 import * as jose from 'jose';
-import type { PlatformJwtPayload, ProjectJwtPayload } from '../../types/fastify.js';
-import type { Config } from '../../config.js';
+import type { ProjectJwtPayload } from '../../types/fastify.js';
 import crypto from 'node:crypto';
-
-let platformSecretKey: Uint8Array;
-
-export function initPlatformJwt(config: Config) {
-  platformSecretKey = new TextEncoder().encode(config.jwt.platformSecret);
-}
-
-// ── Platform JWT ──
-
-export async function createPlatformAccessToken(
-  userId: string,
-  email: string,
-  config: Config,
-): Promise<string> {
-  return new jose.SignJWT({
-    sub: userId,
-    email,
-    role: 'admin',
-    type: 'access',
-  })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(`${config.jwt.accessTokenExpiry}s`)
-    .setIssuer('toph-platform')
-    .sign(platformSecretKey);
-}
-
-export async function verifyPlatformAccessToken(token: string): Promise<PlatformJwtPayload> {
-  const { payload } = await jose.jwtVerify(token, platformSecretKey, {
-    issuer: 'toph-platform',
-  });
-  return payload as unknown as PlatformJwtPayload;
-}
 
 // ── Project JWT ──
 
@@ -57,7 +23,7 @@ export async function createProjectAccessToken(
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuedAt()
     .setExpirationTime(`${expiresIn}s`)
-    .setIssuer(`toph-project:${projectRef}`)
+    .setIssuer(`vibebase:${projectRef}`)
     .sign(secretKey);
 }
 
@@ -68,7 +34,7 @@ export async function verifyProjectAccessToken(
 ): Promise<ProjectJwtPayload> {
   const secretKey = new TextEncoder().encode(jwtSecret);
   const { payload } = await jose.jwtVerify(token, secretKey, {
-    issuer: `toph-project:${projectRef}`,
+    issuer: `vibebase:${projectRef}`,
   });
   return payload as unknown as ProjectJwtPayload;
 }
@@ -77,24 +43,14 @@ export function generateProjectJwtSecret(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// ── API Key Generation ──
-
+// Publishable key — safe to include in client-side code, used with createClient()
 export function generatePublishableKey(): string {
-  return `sb_publishable_${crypto.randomBytes(20).toString('hex')}`;
+  return `vb_publishable_${crypto.randomBytes(24).toString('hex')}`;
 }
 
+// Secret key — server-side only, bypasses RLS
 export function generateSecretKey(): string {
-  return `sb_secret_${crypto.randomBytes(20).toString('hex')}`;
-}
-
-export function isNewFormatKey(key: string): boolean {
-  return key.startsWith('sb_publishable_') || key.startsWith('sb_secret_');
-}
-
-export function getKeyPrefix(key: string): 'publishable' | 'secret' | null {
-  if (key.startsWith('sb_publishable_')) return 'publishable';
-  if (key.startsWith('sb_secret_')) return 'secret';
-  return null;
+  return `vb_secret_${crypto.randomBytes(24).toString('hex')}`;
 }
 
 // ── Shared utilities ──
