@@ -1,17 +1,17 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import { authenticatePlatform } from '../../hooks/authenticate.js';
 import { authenticateProject } from '../../hooks/authenticate.js';
-import { createProjectResolver } from '../../hooks/resolve-project.js';
+import { resolveLocalProject } from '../../hooks/resolve-project.js';
 import { BadRequestError } from '../../lib/errors.js';
-import { platformSigninHandler, platformRefreshHandler, platformSignoutHandler, platformMeHandler } from './platform-handlers.js';
-import { projectSignupHandler, projectSigninHandler, projectRefreshHandler, projectSignoutHandler, projectMeHandler } from './project-handlers.js';
+import {
+  projectSignupHandler,
+  projectSigninHandler,
+  projectRefreshHandler,
+  projectSignoutHandler,
+  projectMeHandler,
+} from './project-handlers.js';
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {
-  const resolveProject = createProjectResolver(fastify.db, fastify.projectPoolManager);
-
-  // Strict rate limit for signup and password sign-in (prevent brute force).
-  // Keyed by IP:email so each account has its own counter, not shared across all users on the IP.
   const strictAuthRateLimit = {
     config: {
       rateLimit: {
@@ -25,63 +25,39 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     },
   };
 
-  // Token route rate limit: password and refresh get separate counters via key prefix
-  // so a burst of refreshes never exhausts the password-attempt budget.
-  // Each key has its own independent counter; `max` applies per key independently.
-  // - password:IP:email → config.rateLimit.auth per 15 min  (brute-force protection)
-  // - refresh:IP        → config.rateLimit.auth per 15 min  (fine: ~1 refresh/hour normally)
   const tokenRateLimit = {
     config: {
       rateLimit: {
-        max: fastify.config.rateLimit.auth,
+        max: fastify.config.rateLimit.auth * 4,
         timeWindow: '15 minutes',
         keyGenerator: (request: FastifyRequest) => {
-          const query = request.query as { grant_type?: string };
           const body = request.body as { email?: string } | undefined;
-          if (query.grant_type === 'refresh_token') {
-            return `refresh:${request.ip}`;
-          }
-          return `password:${request.ip}:${body?.email ?? ''}`;
+          const grant = (request.query as { grant_type?: string }).grant_type ?? 'unknown';
+          const key = body?.email ?? request.ip;
+          return `${grant}:${key}`;
         },
       },
     },
   };
 
-  // ── Platform auth routes ──
-  fastify.post('/platform/auth/signin', platformSigninHandler);
-  fastify.post('/platform/auth/refresh', platformRefreshHandler);
-  fastify.post('/platform/auth/signout', platformSignoutHandler);
-  fastify.get('/platform/auth/me', {
-    preHandler: [authenticatePlatform],
-  }, platformMeHandler);
-
-  // ── Supabase-compatible project auth routes ──
-
-  // POST /auth/v1/signup — strict (prevent account spam)
+  // POST /auth/v1/signup
   fastify.post('/auth/v1/signup', {
     ...strictAuthRateLimit,
-    preHandler: [resolveProject],
+    preHandler: [resolveLocalProject],
   }, projectSignupHandler);
 
-  // POST /auth/v1/token — password and refresh share the route but get separate rate-limit buckets
+  // POST /auth/v1/token (password + refresh)
   fastify.post('/auth/v1/token', {
     ...tokenRateLimit,
-    preHandler: [resolveProject],
+    preHandler: [resolveLocalProject],
   }, async (request, reply) => {
     const query = request.query as { grant_type?: string };
-
-    if (query.grant_type === 'password') {
-      return projectSigninHandler(request, reply);
-    } else if (query.grant_type === 'refresh_token') {
-      return projectRefreshHandler(request, reply);
-    } else {
-      throw new BadRequestError('Invalid grant_type. Must be "password" or "refresh_token"');
-    }
+    if (query.grant_type === 'password') return projectSigninHandler(request, reply);
+    if (query.grant_type === 'refresh_token') return projectRefreshHandler(request, reply);
+    throw new BadRequestError('Invalid grant_type. Must be "password" or "refresh_token"');
   });
 
-  // POST /auth/v1/logout — scoped so we can override the JSON parser.
-  // @supabase/auth-js sends Content-Type: application/json with no body (JSON.stringify(undefined) = undefined),
-  // which Fastify's default parser rejects. Accept empty bodies as {}.
+  // POST /auth/v1/logout — empty-body safe
   fastify.register(async function logoutScope(scope) {
     scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
       if (!body || (body as string).trim() === '') {
@@ -97,14 +73,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       }
     });
     scope.post('/auth/v1/logout', {
-      preHandler: [resolveProject, authenticateProject],
+      preHandler: [resolveLocalProject, authenticateProject],
     }, projectSignoutHandler);
   });
 
-  // GET /auth/v1/user — JWT-gated read, uses global rate limit (no per-route override).
-  // Called on every page load by the Supabase client; a per-route auth limit would block normal browsing.
+  // GET /auth/v1/user
   fastify.get('/auth/v1/user', {
-    preHandler: [resolveProject, authenticateProject],
+    preHandler: [resolveLocalProject, authenticateProject],
   }, projectMeHandler);
 };
 

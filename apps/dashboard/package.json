@@ -1,10 +1,10 @@
 {
-  "name": "@toph-base/dashboard",
+  "name": "@vibebase/dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dotenvx run -f ~/.secrets/toph-base.env -- vite",
+    "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

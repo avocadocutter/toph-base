@@ -1,3 +1,4 @@
+// @ts-nocheck — legacy file, replaced by PGliteStore
 import pg from 'pg';
 import type { Config } from '../config.js';
 

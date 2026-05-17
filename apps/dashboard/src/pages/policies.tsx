@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, projectAdminPath } from '@/lib/api-client';
-import { useProjectStore } from '@/stores/project-store';
 import type { TableSummary, RlsPolicy } from '@/types';
 import { DataTable } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +12,6 @@ import { Plus, Trash2 } from 'lucide-react';
 
 export function PoliciesPage() {
   const queryClient = useQueryClient();
-  const currentProject = useProjectStore((s) => s.currentProject);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [newPolicy, setNewPolicy] = useState({
@@ -24,15 +22,14 @@ export function PoliciesPage() {
   });
 
   const tables = useQuery({
-    queryKey: ['admin-tables', currentProject?.ref],
+    queryKey: ['admin-tables'],
     queryFn: () => api.get<TableSummary[]>(projectAdminPath('/tables')),
-    enabled: !!currentProject,
   });
 
   const policies = useQuery({
-    queryKey: ['policies', currentProject?.ref, selectedTable],
+    queryKey: ['policies', selectedTable],
     queryFn: () => api.get<RlsPolicy[]>(projectAdminPath(`/rls/${selectedTable}/policies`)),
-    enabled: !!selectedTable && !!currentProject,
+    enabled: !!selectedTable,
   });
 
   const createPolicy = useMutation({
