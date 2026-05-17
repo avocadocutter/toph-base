@@ -1,54 +1,9 @@
 import type { PGliteStore } from './pglite-store.js';
 
-const CURRENT_SCHEMA_VERSION = 2;
-
-// Applied once when the database is first created.
-const BOOTSTRAP_SQL = `
+const SETUP_SQL = `
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE SCHEMA IF NOT EXISTS public;
 
-CREATE TABLE IF NOT EXISTS auth.users (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role        TEXT NOT NULL DEFAULT 'authenticated',
-  email_confirmed BOOLEAN NOT NULL DEFAULT false,
-  is_disabled BOOLEAN NOT NULL DEFAULT false,
-  metadata    JSONB,
-  last_sign_in_at TIMESTAMPTZ,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS auth.sessions (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  refresh_token_hash TEXT NOT NULL UNIQUE,
-  family_id   UUID NOT NULL,
-  ip_address  TEXT,
-  user_agent  TEXT,
-  expires_at  TIMESTAMPTZ NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON auth.sessions(user_id);
-CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
-CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
-
-CREATE TABLE IF NOT EXISTS auth._tophbase_meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
-INSERT INTO auth._tophbase_meta (key, value)
-  VALUES ('schema_version', '0')
-  ON CONFLICT (key) DO NOTHING;
-`;
-
-// Keyed by the version they upgrade TO. Applied in order when the stored
-// schema_version is less than CURRENT_SCHEMA_VERSION.
-const UPGRADES: Record<number, string> = {
-  1: `
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
     CREATE ROLE anon NOLOGIN;
@@ -59,9 +14,36 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
     CREATE ROLE service_role NOLOGIN BYPASSRLS;
   END IF;
-END $$
-`,
-  2: `
+END $$;
+
+CREATE TABLE IF NOT EXISTS auth.users (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'authenticated',
+  email_confirmed   BOOLEAN NOT NULL DEFAULT false,
+  is_disabled       BOOLEAN NOT NULL DEFAULT false,
+  metadata          JSONB,
+  last_sign_in_at   TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth.sessions (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  refresh_token_hash  TEXT NOT NULL UNIQUE,
+  family_id           UUID NOT NULL,
+  ip_address          TEXT,
+  user_agent          TEXT,
+  expires_at          TIMESTAMPTZ NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx   ON auth.sessions(user_id);
+CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
+
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
@@ -86,36 +68,10 @@ CREATE OR REPLACE FUNCTION auth.email() RETURNS text
       current_setting('request.jwt.claims', true)::jsonb->>'email'
     )
   $$;
-`,
-};
+`;
 
-export async function runBootstrapMigrations(store: PGliteStore): Promise<boolean> {
-  // Ensure the meta table and base schema exist.
-  try {
-    await store.query(`SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`);
-  } catch {
-    await runMultiStatement(store, BOOTSTRAP_SQL);
-  }
-
-  // Read current version and apply any pending upgrades.
-  const { rows } = await store.query<{ value: string }>(
-    `SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`,
-  );
-  let version = parseInt(rows[0]?.value ?? '0', 10);
-
-  if (version >= CURRENT_SCHEMA_VERSION) return false;
-
-  for (let v = version + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
-    const sql = UPGRADES[v];
-    if (sql) await store.exec(sql);
-    await store.query(
-      `UPDATE auth._tophbase_meta SET value = $1 WHERE key = 'schema_version'`,
-      [String(v)],
-    );
-    version = v;
-  }
-
-  return true;
+export async function runBootstrapMigrations(store: PGliteStore): Promise<void> {
+  await store.exec(SETUP_SQL);
 }
 
 async function runMultiStatement(store: PGliteStore, sql: string): Promise<void> {
