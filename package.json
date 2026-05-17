@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "install": "pnpm --filter './apps/*' install",
     "dev": "pnpm --parallel --filter './apps/*' dev",
     "build": "pnpm --filter @vibebase/dashboard build && pnpm --filter vibebase build && node scripts/bundle-dashboard.js",
     "test": "pnpm --filter vibebase test"
