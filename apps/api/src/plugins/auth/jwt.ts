@@ -23,7 +23,7 @@ export async function createProjectAccessToken(
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuedAt()
     .setExpirationTime(`${expiresIn}s`)
-    .setIssuer(`vibebase:${projectRef}`)
+    .setIssuer(`tophbase:${projectRef}`)
     .sign(secretKey);
 }
 
@@ -34,7 +34,7 @@ export async function verifyProjectAccessToken(
 ): Promise<ProjectJwtPayload> {
   const secretKey = new TextEncoder().encode(jwtSecret);
   const { payload } = await jose.jwtVerify(token, secretKey, {
-    issuer: `vibebase:${projectRef}`,
+    issuer: `tophbase:${projectRef}`,
   });
   return payload as unknown as ProjectJwtPayload;
 }

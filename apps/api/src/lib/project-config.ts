@@ -13,7 +13,7 @@ export interface ProjectConfig {
 }
 
 export async function loadOrCreateProjectConfig(dataDir: string): Promise<ProjectConfig> {
-  const configPath = path.join(dataDir, 'vibebase-config.json');
+  const configPath = path.join(dataDir, 'tophbase-config.json');
   try {
     const raw = await fs.readFile(configPath, 'utf8');
     const config = JSON.parse(raw) as ProjectConfig;
@@ -39,6 +39,6 @@ export async function loadOrCreateProjectConfig(dataDir: string): Promise<Projec
 }
 
 export async function saveProjectConfig(dataDir: string, config: ProjectConfig): Promise<void> {
-  const configPath = path.join(dataDir, 'vibebase-config.json');
+  const configPath = path.join(dataDir, 'tophbase-config.json');
   await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
 }

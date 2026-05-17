@@ -98,7 +98,7 @@ export function MigrationsPage() {
       // Create a temporary anchor element and trigger download
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `vibebase-migrations.zip`;
+      a.download = `tophbase-migrations.zip`;
       document.body.appendChild(a);
       a.click();
 

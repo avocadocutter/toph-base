@@ -40,7 +40,7 @@ export function Sidebar() {
     >
       <div className="flex h-14 items-center justify-between border-b border-border px-3">
         {!sidebarCollapsed && (
-          <span className="text-sm font-bold tracking-tight text-foreground">Vibebase</span>
+          <span className="text-sm font-bold tracking-tight text-foreground">Tophbase</span>
         )}
         <button
           onClick={toggleSidebar}
@@ -103,7 +103,7 @@ export function Sidebar() {
 
       <div className="border-t border-border p-3">
         {!sidebarCollapsed && (
-          <p className="text-[10px] text-muted-foreground">Vibebase v0.1.0</p>
+          <p className="text-[10px] text-muted-foreground">Tophbase v0.1.0</p>
         )}
       </div>
     </aside>

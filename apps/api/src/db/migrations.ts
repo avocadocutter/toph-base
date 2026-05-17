@@ -1,6 +1,6 @@
 import type { PGliteStore } from './pglite-store.js';
 
-// Bootstrap SQL executed once on a fresh Vibebase project database.
+// Bootstrap SQL executed once on a fresh Tophbase project database.
 // Creates the auth schema (users + sessions) and a public schema for user data.
 const BOOTSTRAP_SQL = `
 CREATE SCHEMA IF NOT EXISTS auth;
@@ -34,13 +34,13 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON auth.sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
 
--- Vibebase metadata table to track schema version
-CREATE TABLE IF NOT EXISTS auth._vibebase_meta (
+-- Tophbase metadata table to track schema version
+CREATE TABLE IF NOT EXISTS auth._tophbase_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
-INSERT INTO auth._vibebase_meta (key, value)
+INSERT INTO auth._tophbase_meta (key, value)
   VALUES ('schema_version', '1')
   ON CONFLICT (key) DO NOTHING;
 `;
@@ -49,7 +49,7 @@ export async function runBootstrapMigrations(store: PGliteStore): Promise<boolea
   // Check if already bootstrapped
   try {
     const result = await store.query<{ value: string }>(
-      `SELECT value FROM auth._vibebase_meta WHERE key = 'schema_version'`,
+      `SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`,
     );
     if (result.rows.length > 0) return false; // Already bootstrapped
   } catch {

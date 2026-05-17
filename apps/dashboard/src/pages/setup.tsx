@@ -48,7 +48,7 @@ export function SetupPage() {
     if (!selected) return;
     setLoading(true);
     try {
-      await api.post('/vibebase/setup', { dialect: selected });
+      await api.post('/tophbase/setup', { dialect: selected });
       navigate('/', { replace: true });
     } catch {
       toast.error('Setup failed. Please try again.');
@@ -61,7 +61,7 @@ export function SetupPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-12">
       {/* Branding */}
       <div className="mb-10 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Vibebase</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Tophbase</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Choose the SDK dialect your app will use to connect.
         </p>

@@ -16,7 +16,7 @@ import introspectionPlugin from './plugins/introspection/index.js';
 import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
 import realtimePlugin from './plugins/realtime/index.js';
-import vibebasePlugin from './plugins/vibebase/index.js';
+import tophbasePlugin from './plugins/tophbase/index.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -26,8 +26,8 @@ import { exec } from 'node:child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const projectName = process.env.VIBEBASE_PROJECT ?? 'default';
-  const dataDir = process.env.VIBEBASE_DATA_DIR ?? path.join(os.homedir(), '.vibebase', 'projects', projectName);
+  const projectName = process.env.TOPHBASE_PROJECT ?? 'default';
+  const dataDir = process.env.TOPHBASE_DATA_DIR ?? path.join(os.homedir(), '.tophbase', 'projects', projectName);
 
   // Load or create project config (generates secrets on first run)
   await fs.mkdir(dataDir, { recursive: true });
@@ -46,10 +46,10 @@ async function main() {
     const nodeVersion = process.version;
     const major = parseInt(nodeVersion.slice(1).split('.')[0], 10);
     if (major < 18) {
-      console.error(`vibebase: requires Node.js 18+. You are running ${nodeVersion}.`);
+      console.error(`tophbase: requires Node.js 18+. You are running ${nodeVersion}.`);
       console.error(`Fix: nvm install 18 && nvm use 18`);
     } else {
-      console.error(`vibebase: failed to initialize storage at ${config.project.dataDir}`);
+      console.error(`tophbase: failed to initialize storage at ${config.project.dataDir}`);
       console.error(`Error: ${(err as Error).message}`);
       console.error(`Check that ${config.project.dataDir} is writable.`);
     }
@@ -72,8 +72,8 @@ async function main() {
   fastify.decorate('config', config);
   fastify.decorate('authenticate', authenticateProject);
 
-  // Track dialect on the fastify instance for the vibebase status endpoint
-  (fastify as unknown as { _vibebaseDialect: Dialect | null })._vibebaseDialect = projectConfig.dialect;
+  // Track dialect on the fastify instance for the tophbase status endpoint
+  (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect = projectConfig.dialect;
 
   // Global plugins
   await fastify.register(cors, {
@@ -129,7 +129,7 @@ async function main() {
   });
 
   // Application plugins
-  await fastify.register(vibebasePlugin);
+  await fastify.register(tophbasePlugin);
   await fastify.register(realtimePlugin);
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
@@ -160,7 +160,7 @@ async function main() {
       decorateReply: true,
     });
     fastify.setNotFoundHandler((request, reply) => {
-      const apiPrefixes = ['/rest/', '/auth/', '/realtime/', '/health', '/vibebase/'];
+      const apiPrefixes = ['/rest/', '/auth/', '/realtime/', '/health', '/tophbase/'];
       if (apiPrefixes.some(p => request.url.startsWith(p))) {
         reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
       } else {
@@ -189,7 +189,7 @@ async function main() {
 
   const url = `http://localhost:${config.server.port}`;
   console.log('');
-  console.log(`  Vibebase running at ${url}`);
+  console.log(`  Tophbase running at ${url}`);
   console.log(`  Publishable key: ${config.project.publishableKey}`);
   console.log(`  Secret key:      ${config.project.secretKey}`);
   console.log('');
@@ -200,7 +200,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('vibebase: failed to start');
+  console.error('tophbase: failed to start');
   console.error(err.message ?? err);
   process.exit(1);
 });

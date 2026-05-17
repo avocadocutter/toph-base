@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
-const apiUrl = process.env.VIBEBASE_API_URL ?? 'http://localhost:8000';
+const apiUrl = process.env.TOPHBASE_API_URL ?? 'http://localhost:8000';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -18,7 +18,7 @@ export default defineConfig({
       '/auth': apiUrl,
       '/rest': apiUrl,
       '/realtime': apiUrl,
-      '/vibebase': apiUrl,
+      '/tophbase': apiUrl,
       '/admin': apiUrl,
       '/health': apiUrl,
     },

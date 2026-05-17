@@ -18,8 +18,8 @@ async function main() {
       printHelp();
       break;
     default:
-      console.error(`vibebase: unknown command '${cmd}'`);
-      console.error(`Run 'vibebase --help' for available commands.`);
+      console.error(`tophbase: unknown command '${cmd}'`);
+      console.error(`Run 'tophbase --help' for available commands.`);
       process.exit(1);
   }
 }
@@ -41,8 +41,8 @@ async function cmdSchema(args: string[]) {
     const path = (await import('node:path')).default;
     const os = (await import('node:os')).default;
 
-    const projectName = process.env.VIBEBASE_PROJECT ?? 'default';
-    const dataDir = process.env.VIBEBASE_DATA_DIR ?? path.join(os.homedir(), '.vibebase', 'projects', projectName);
+    const projectName = process.env.TOPHBASE_PROJECT ?? 'default';
+    const dataDir = process.env.TOPHBASE_DATA_DIR ?? path.join(os.homedir(), '.tophbase', 'projects', projectName);
     const projectConfig = await loadOrCreateProjectConfig(dataDir);
     const config = buildConfig(projectConfig, projectName);
     const pgliteDir = path.join(dataDir, 'data');
@@ -54,14 +54,14 @@ async function cmdSchema(args: string[]) {
     console.log('SCHEMA.md updated.');
     await store.end();
   } else {
-    console.error(`vibebase schema: unknown subcommand '${subcmd}'`);
+    console.error(`tophbase schema: unknown subcommand '${subcmd}'`);
     process.exit(1);
   }
 }
 
 function printHelp() {
   console.log(`
-  vibebase — local Supabase-compatible backend
+  tophbase — local Supabase-compatible backend
 
   COMMANDS
     start                  Start the backend server (default)
@@ -71,13 +71,13 @@ function printHelp() {
     --help, -h             Show this help message
 
   EXAMPLES
-    vibebase start
-    vibebase schema refresh
-    npx vibebase start
+    tophbase start
+    tophbase schema refresh
+    npx tophbase start
 `);
 }
 
 main().catch(err => {
-  console.error('vibebase:', err.message ?? err);
+  console.error('tophbase:', err.message ?? err);
   process.exit(1);
 });

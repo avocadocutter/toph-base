@@ -25,7 +25,7 @@ const queryClient = new QueryClient({
   },
 });
 
-interface VibebaseStatus {
+interface TophbaseStatus {
   configured: boolean;
   dialect: string | null;
   version: string;
@@ -38,8 +38,8 @@ function AppGate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/vibebase/status')
-      .then(r => r.json() as Promise<VibebaseStatus>)
+    fetch('/tophbase/status')
+      .then(r => r.json() as Promise<TophbaseStatus>)
       .then((status) => {
         if (!status.configured) {
           navigate('/setup', { replace: true });

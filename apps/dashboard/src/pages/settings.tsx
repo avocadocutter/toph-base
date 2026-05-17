@@ -4,7 +4,7 @@ import { api } from '@/lib/api-client';
 import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Eye, EyeOff } from 'lucide-react';
 
-interface VibebaseStatus {
+interface TophbaseStatus {
   configured: boolean;
   dialect: string | null;
   version: string;
@@ -51,8 +51,8 @@ function ApiKeyRow({ label, value }: { label: string; value: string }) {
 
 export function SettingsPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['vibebase-status'],
-    queryFn: () => api.get<VibebaseStatus>('/vibebase/status'),
+    queryKey: ['tophbase-status'],
+    queryFn: () => api.get<TophbaseStatus>('/tophbase/status'),
   });
 
   if (isLoading) {
@@ -82,7 +82,7 @@ export function SettingsPage() {
         <div>
           <h2 className="text-sm font-semibold">Connection</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Use these values to connect your app to Vibebase.
+            Use these values to connect your app to Tophbase.
           </p>
         </div>
 
@@ -124,7 +124,7 @@ const supabase = createClient('${data.url}', '${data.publishableKey}')`}</pre>
         <h2 className="text-sm font-semibold">About</h2>
         <div className="text-xs text-muted-foreground space-y-1">
           <div className="flex justify-between">
-            <span>Vibebase version</span>
+            <span>Tophbase version</span>
             <span>{data.version}</span>
           </div>
           <div className="flex justify-between">

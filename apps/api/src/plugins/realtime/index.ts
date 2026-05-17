@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 
-// Vibebase provides a no-op WebSocket endpoint at /realtime/v1/websocket.
+// Tophbase provides a no-op WebSocket endpoint at /realtime/v1/websocket.
 // The Supabase JS client opens this connection immediately on createClient(),
 // even if the app never uses realtime subscriptions. Without this handler,
 // every createClient() call would log a connection error and emit CHANNEL_ERROR.

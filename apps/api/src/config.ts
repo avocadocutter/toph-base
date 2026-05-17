@@ -25,27 +25,27 @@ export interface Config {
 }
 
 function defaultDataDir(name: string): string {
-  return path.join(os.homedir(), '.vibebase', 'projects', name);
+  return path.join(os.homedir(), '.tophbase', 'projects', name);
 }
 
 export function buildConfig(projectConfig: ProjectConfig, projectName = 'default'): Config {
   const env = process.env;
-  const dataDir = env.VIBEBASE_DATA_DIR ?? defaultDataDir(projectName);
+  const dataDir = env.TOPHBASE_DATA_DIR ?? defaultDataDir(projectName);
   return {
     project: {
       name: projectName,
       dataDir,
-      jwtSecret: env.VIBEBASE_JWT_SECRET ?? projectConfig.jwtSecret,
-      publishableKey: env.VIBEBASE_PUBLISHABLE_KEY ?? projectConfig.publishableKey,
-      secretKey: env.VIBEBASE_SECRET_KEY ?? projectConfig.secretKey,
+      jwtSecret: env.TOPHBASE_JWT_SECRET ?? projectConfig.jwtSecret,
+      publishableKey: env.TOPHBASE_PUBLISHABLE_KEY ?? projectConfig.publishableKey,
+      secretKey: env.TOPHBASE_SECRET_KEY ?? projectConfig.secretKey,
     },
     jwt: {
       accessTokenExpiry: Number(env.ACCESS_TOKEN_EXPIRY ?? 3600),
       refreshTokenExpiry: Number(env.REFRESH_TOKEN_EXPIRY ?? 604800),
     },
     server: {
-      port: Number(env.VIBEBASE_PORT ?? 8000),
-      host: env.VIBEBASE_HOST ?? '127.0.0.1',
+      port: Number(env.TOPHBASE_PORT ?? 8000),
+      host: env.TOPHBASE_HOST ?? '127.0.0.1',
       logLevel: (env.LOG_LEVEL as Config['server']['logLevel']) ?? 'info',
     },
     cors: { allowedOrigins: env.CORS_ALLOWED_ORIGINS ?? '*' },

@@ -3,7 +3,7 @@ import { api } from '@/lib/api-client';
 import { BookOpen, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 
-interface VibebaseStatus {
+interface TophbaseStatus {
   configured: boolean;
   dialect: string | null;
   version: string;
@@ -15,8 +15,8 @@ export function DocsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const { data: status } = useQuery({
-    queryKey: ['vibebase-status'],
-    queryFn: () => api.get<VibebaseStatus>('/vibebase/status'),
+    queryKey: ['tophbase-status'],
+    queryFn: () => api.get<TophbaseStatus>('/tophbase/status'),
   });
 
   const apiUrl = status?.url ? `${status.url}/rest/v1` : 'http://localhost:8000/rest/v1';
@@ -50,7 +50,7 @@ export function DocsPage() {
           <div>
             <h1 className="text-3xl font-bold">API Documentation</h1>
             <p className="text-sm text-muted-foreground">
-              Connect to your Vibebase database using the Supabase-compatible REST API
+              Connect to your Tophbase database using the Supabase-compatible REST API
             </p>
           </div>
         </div>
@@ -179,7 +179,7 @@ curl '${apiUrl}/todos?order=id.desc&limit=10&offset=0&select=id,task' \\
         {/* Footer */}
         <section className="border-t border-border pt-6">
           <p className="text-sm text-muted-foreground">
-            Vibebase v{status?.version ?? '0.1.0'} — Supabase-compatible REST API running locally.
+            Tophbase v{status?.version ?? '0.1.0'} — Supabase-compatible REST API running locally.
           </p>
         </section>
       </div>

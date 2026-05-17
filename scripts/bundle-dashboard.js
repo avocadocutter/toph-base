@@ -9,7 +9,7 @@ const src  = path.join(root, 'apps/dashboard/dist');
 const dest = path.join(root, 'apps/api/dashboard');
 
 if (!fs.existsSync(src)) {
-  console.error('Dashboard not built. Run: pnpm --filter @vibebase/dashboard build');
+  console.error('Dashboard not built. Run: pnpm --filter @tophbase/dashboard build');
   process.exit(1);
 }
 
