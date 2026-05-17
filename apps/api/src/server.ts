@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { buildConfig, type Config } from './config.js';
@@ -15,6 +16,7 @@ import restApiPlugin from './plugins/rest-api/index.js';
 import rlsPlugin from './plugins/rls/index.js';
 import realtimePlugin from './plugins/realtime/index.js';
 import tophbasePlugin from './plugins/tophbase/index.js';
+import localAdminPlugin from './plugins/local-admin/index.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,6 +71,8 @@ export async function createServer(): Promise<ServerContext> {
 
   (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect = projectConfig.dialect;
 
+  await fastify.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
+
   await fastify.register(cors, {
     origin: config.cors.allowedOrigins === '*' ? true : config.cors.allowedOrigins.split(',').map(s => s.trim()),
     credentials: true,
@@ -121,6 +125,7 @@ export async function createServer(): Promise<ServerContext> {
   });
 
   await fastify.register(tophbasePlugin);
+  await fastify.register(localAdminPlugin);
   await fastify.register(realtimePlugin);
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);

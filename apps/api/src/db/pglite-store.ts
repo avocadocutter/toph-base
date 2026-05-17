@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 export interface QueryResult<T = any> {
   rows: T[];
   rowCount: number | null;
+  fields?: { name: string; dataTypeID: number }[];
 }
 
 export interface DbClient {
@@ -15,6 +16,7 @@ export interface DbClient {
 export interface DbPool {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query<T = any>(text: string, values?: unknown[]): Promise<QueryResult<T>>;
+  exec(sql: string): Promise<void>;
   connect(): Promise<DbClient>;
   end(): Promise<void>;
 }
@@ -37,7 +39,11 @@ export class PGliteStore implements DbPool {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async query<T = any>(text: string, values?: unknown[]): Promise<QueryResult<T>> {
     const result = await this.db.query<T>(text, values as unknown[] | undefined);
-    return { rows: result.rows, rowCount: result.rows.length };
+    return { rows: result.rows, rowCount: result.rows.length, fields: result.fields };
+  }
+
+  async exec(sql: string): Promise<void> {
+    await this.db.exec(sql);
   }
 
   connect(): Promise<DbClient> {

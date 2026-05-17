@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { BadRequestError } from '../../lib/errors.js';
 import { invalidateCache } from '../introspection/inspector.js';
 
+const sqlQuerySchema = z.object({
+  query: z.string().min(1, 'Query is required').max(100000),
+});
+
 const createPolicySchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid policy name'),
   command: z.enum(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'ALL']),
@@ -15,6 +19,35 @@ const createPolicySchema = z.object({
 });
 
 const rlsPlugin: FastifyPluginAsync = async (fastify) => {
+  fastify.post('/admin/sql', {
+    preHandler: [resolveLocalProject],
+  }, async (request: FastifyRequest) => {
+    const projectDb = request.projectDb!;
+    const body = sqlQuerySchema.parse(request.body);
+    const startTime = Date.now();
+
+    try {
+      const result = await projectDb.query(body.query);
+      const duration = Date.now() - startTime;
+      invalidateCache('local');
+
+      return {
+        rows: result.rows ?? [],
+        rowCount: result.rowCount ?? 0,
+        fields: result.fields?.map((f) => ({ name: f.name, dataTypeID: f.dataTypeID })) ?? [],
+        duration,
+      };
+    } catch (error: unknown) {
+      const pgError = error as { message: string; position?: string; detail?: string; hint?: string };
+      throw new BadRequestError('SQL execution error', {
+        message: pgError.message,
+        position: pgError.position,
+        detail: pgError.detail,
+        hint: pgError.hint,
+      });
+    }
+  });
+
   // RLS management routes — accessible locally (no platform auth required in single-project mode)
 
   fastify.post('/admin/rls/:table/enable', {

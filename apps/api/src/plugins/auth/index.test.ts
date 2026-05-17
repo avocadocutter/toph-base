@@ -23,6 +23,7 @@ const stubConfig: Config = {
 
 const stubDb: DbPool = {
   query: async () => ({ rows: [], rowCount: 0 }),
+  exec: async () => {},
   connect: async () => ({
     query: async () => ({ rows: [], rowCount: 0 }),
     release: () => {},

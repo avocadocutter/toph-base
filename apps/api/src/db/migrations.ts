@@ -1,7 +1,8 @@
 import type { PGliteStore } from './pglite-store.js';
 
-// Bootstrap SQL executed once on a fresh Tophbase project database.
-// Creates the auth schema (users + sessions) and a public schema for user data.
+const CURRENT_SCHEMA_VERSION = 2;
+
+// Applied once when the database is first created.
 const BOOTSTRAP_SQL = `
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE SCHEMA IF NOT EXISTS public;
@@ -34,33 +35,86 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON auth.sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
 
--- Tophbase metadata table to track schema version
 CREATE TABLE IF NOT EXISTS auth._tophbase_meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
 INSERT INTO auth._tophbase_meta (key, value)
-  VALUES ('schema_version', '1')
+  VALUES ('schema_version', '0')
   ON CONFLICT (key) DO NOTHING;
 `;
 
+// Keyed by the version they upgrade TO. Applied in order when the stored
+// schema_version is less than CURRENT_SCHEMA_VERSION.
+const UPGRADES: Record<number, string> = {
+  1: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+  END IF;
+END $$
+`,
+  2: `
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+  LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+      NULLIF(current_setting('request.jwt.claim.sub', true), ''),
+      current_setting('request.jwt.claims', true)::jsonb->>'sub'
+    )::uuid
+  $$;
+
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text
+  LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+      NULLIF(current_setting('request.jwt.claim.role', true), ''),
+      current_setting('request.jwt.claims', true)::jsonb->>'role',
+      'anon'
+    )
+  $$;
+
+CREATE OR REPLACE FUNCTION auth.email() RETURNS text
+  LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(
+      NULLIF(current_setting('request.jwt.claim.email', true), ''),
+      current_setting('request.jwt.claims', true)::jsonb->>'email'
+    )
+  $$;
+`,
+};
+
 export async function runBootstrapMigrations(store: PGliteStore): Promise<boolean> {
-  // Check if already bootstrapped
+  // Ensure the meta table and base schema exist.
   try {
-    const result = await store.query<{ value: string }>(
-      `SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`,
-    );
-    if (result.rows.length > 0) return false; // Already bootstrapped
+    await store.query(`SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`);
   } catch {
-    // Table doesn't exist yet — run bootstrap
+    await runMultiStatement(store, BOOTSTRAP_SQL);
   }
 
-  // PGLite's exec() runs multi-statement SQL
-  const { PGlite } = await import('@electric-sql/pglite');
-  void PGlite; // type-only import guard
-  // Use the store's internal db by going through exec via a raw query sequence
-  await runMultiStatement(store, BOOTSTRAP_SQL);
+  // Read current version and apply any pending upgrades.
+  const { rows } = await store.query<{ value: string }>(
+    `SELECT value FROM auth._tophbase_meta WHERE key = 'schema_version'`,
+  );
+  let version = parseInt(rows[0]?.value ?? '0', 10);
+
+  if (version >= CURRENT_SCHEMA_VERSION) return false;
+
+  for (let v = version + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
+    const sql = UPGRADES[v];
+    if (sql) await store.exec(sql);
+    await store.query(
+      `UPDATE auth._tophbase_meta SET value = $1 WHERE key = 'schema_version'`,
+      [String(v)],
+    );
+    version = v;
+  }
+
   return true;
 }
 
