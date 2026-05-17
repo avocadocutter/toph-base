@@ -6,7 +6,7 @@ async function main() {
   switch (cmd) {
     case undefined:
     case 'freshman':
-      return cmdFreshman();
+      return cmdFreshman(args);
     case 'graduate':
       return cmdGraduate(args);
     case 'schema':
@@ -22,7 +22,16 @@ async function main() {
   }
 }
 
-async function cmdFreshman() {
+async function cmdFreshman(args: string[]) {
+  const portIdx = args.indexOf('--port');
+  if (portIdx !== -1) {
+    const portVal = args[portIdx + 1];
+    if (!portVal || isNaN(Number(portVal))) {
+      console.error('tophbase freshman: --port requires a numeric value');
+      process.exit(1);
+    }
+    process.env.TOPHBASE_PORT = portVal;
+  }
   const { start } = await import('../server.js');
   await start();
 }
@@ -63,7 +72,7 @@ function printHelp() {
   tophbase — local Supabase-compatible backend
 
   COMMANDS
-    freshman                         Start the local backend server (default)
+    freshman [--port <port>]          Start the local backend server (default port 8000)
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema
 
