@@ -19,7 +19,7 @@
     "format": "prettier --write src/ --config ../../prettier.config.mjs"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.2.0",
+    "@electric-sql/pglite": "^0.4.5",
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.0.0",
     "@fastify/multipart": "^10.0.0",

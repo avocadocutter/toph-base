@@ -22,24 +22,119 @@ async function main() {
   }
 }
 
-async function cmdFreshman(args: string[]) {
-  const portIdx = args.indexOf('--port');
-  if (portIdx !== -1) {
-    const portVal = args[portIdx + 1];
-    if (!portVal || isNaN(Number(portVal))) {
-      console.error('tophbase freshman: --port requires a numeric value');
-      process.exit(1);
-    }
-    process.env.TOPHBASE_PORT = portVal;
+// ── Local config (.tophbase/config.json in cwd) ──────────────────────────────
+// Everything lives inside .tophbase/ in the project repo (gitignored).
+
+const LOCAL_CONFIG_DIR = '.tophbase';
+const LOCAL_CONFIG_FILE = `${LOCAL_CONFIG_DIR}/config.json`;
+
+interface LocalConfig {
+  port: number;
+  migrationsDir: string;
+}
+
+async function readLocalConfig(): Promise<Partial<LocalConfig>> {
+  const fs = (await import('node:fs/promises')).default;
+  try {
+    return JSON.parse(await fs.readFile(LOCAL_CONFIG_FILE, 'utf8')) as Partial<LocalConfig>;
+  } catch {
+    return {};
   }
+}
+
+async function writeLocalConfig(config: LocalConfig): Promise<void> {
+  const fs = (await import('node:fs/promises')).default;
+  await fs.mkdir(LOCAL_CONFIG_DIR, { recursive: true });
+  let existing: Record<string, unknown> = {};
+  try { existing = JSON.parse(await fs.readFile(LOCAL_CONFIG_FILE, 'utf8')) as Record<string, unknown>; } catch { /* ignore */ }
+  await fs.writeFile(LOCAL_CONFIG_FILE, JSON.stringify({ ...existing, ...config }, null, 2), 'utf8');
+}
+
+async function prompt(rl: import('node:readline').Interface, question: string): Promise<string> {
+  return new Promise((resolve) => rl.question(question, resolve));
+}
+
+// ── freshman ──────────────────────────────────────────────────────────────────
+
+async function cmdFreshman(args: string[]) {
+  const path = (await import('node:path')).default;
+
+  const flagPort = argValue(args, '--port');
+  const flagMigrations = argValue(args, '--migrations-dir');
+
+  const saved = await readLocalConfig();
+  const isFirstRun = !saved.port && !flagPort;
+
+  // Data dir is always .tophbase/ in cwd — no prompt needed.
+  const dataDir = path.resolve(LOCAL_CONFIG_DIR);
+
+  let port: number;
+  let migrationsDir: string;
+
+  if (flagPort) {
+    port = Number(flagPort);
+    if (isNaN(port)) { console.error('tophbase freshman: --port must be a number'); process.exit(1); }
+  } else if (saved.port) {
+    port = saved.port;
+  } else {
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, '  Port [8000]: ');
+    rl.close();
+    port = Number(answer.trim() || 8000);
+    if (isNaN(port)) { console.error('tophbase freshman: port must be a number'); process.exit(1); }
+  }
+
+  if (flagMigrations) {
+    migrationsDir = path.resolve(flagMigrations);
+  } else if (saved.migrationsDir) {
+    migrationsDir = saved.migrationsDir;
+  } else {
+    const suggested = path.resolve('./supabase/migrations');
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, `  Migrations dir [${suggested}]: `);
+    rl.close();
+    migrationsDir = path.resolve(answer.trim() || suggested);
+  }
+
+  if (isFirstRun || flagPort || flagMigrations) {
+    await writeLocalConfig({ port, migrationsDir });
+    if (isFirstRun) console.log(`  Config saved to ${LOCAL_CONFIG_FILE}`);
+  }
+
+  console.log('');
+  console.log(`  Data dir:       ${dataDir}`);
+  console.log(`  Port:           ${port}`);
+  console.log(`  Migrations dir: ${migrationsDir}`);
+  console.log('');
+
+  process.env.TOPHBASE_DATA_DIR = dataDir;
+  process.env.TOPHBASE_PROJECT = path.basename(process.cwd());
+  process.env.TOPHBASE_PORT = String(port);
+  process.env.TOPHBASE_MIGRATIONS_DIR = migrationsDir;
+
   const { start } = await import('../server.js');
   await start();
 }
+
+function argValue(args: string[], flag: string): string | null {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return null;
+  const val = args[idx + 1];
+  if (!val || val.startsWith('--')) {
+    console.error(`tophbase freshman: ${flag} requires a value`);
+    process.exit(1);
+  }
+  return val;
+}
+
+// ── graduate ──────────────────────────────────────────────────────────────────
 
 async function cmdGraduate(args: string[]) {
   const { cmdGraduate: graduate } = await import('./graduate.js');
   await graduate(args);
 }
+
+// ── schema ────────────────────────────────────────────────────────────────────
 
 async function cmdSchema(args: string[]) {
   const subcmd = args[0];
@@ -47,14 +142,12 @@ async function cmdSchema(args: string[]) {
     const { buildConfig, loadOrCreateProjectConfig, PGliteStore, generateSchemaMd } = await import('@tophbase/api');
     const fs = (await import('node:fs/promises')).default;
     const path = (await import('node:path')).default;
-    const os = (await import('node:os')).default;
 
-    const projectName = process.env.TOPHBASE_PROJECT ?? 'default';
-    const dataDir = process.env.TOPHBASE_DATA_DIR ?? path.join(os.homedir(), '.tophbase', 'projects', projectName);
+    const dataDir = path.resolve(LOCAL_CONFIG_DIR);
+    const projectName = path.basename(process.cwd());
     const projectConfig = await loadOrCreateProjectConfig(dataDir);
     buildConfig(projectConfig, projectName);
-    const pgliteDir = path.join(dataDir, 'data');
-    const store = new PGliteStore(pgliteDir);
+    const store = new PGliteStore(path.join(dataDir, 'data'));
     await store.init();
 
     const md = await generateSchemaMd(store);
@@ -67,12 +160,22 @@ async function cmdSchema(args: string[]) {
   }
 }
 
+// ── help ──────────────────────────────────────────────────────────────────────
+
 function printHelp() {
   console.log(`
   tophbase — local Supabase-compatible backend
 
   COMMANDS
-    freshman [--port <port>]          Start the local backend server (default port 8000)
+    freshman   Start the local backend server
+               All data stored in .tophbase/ in the current directory.
+               Prompts for port and migrations dir on first run.
+               Config saved to .tophbase/config.json (add .tophbase/ to .gitignore).
+
+               Flags (override saved config):
+                 --port <port>
+                 --migrations-dir <path>
+
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema
 
@@ -84,8 +187,8 @@ function printHelp() {
 
   EXAMPLES
     tophbase freshman
+    tophbase freshman --migrations-dir ./supabase/migrations
     tophbase graduate --provider railway
-    npx tophbase
 `);
 }
 

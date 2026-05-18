@@ -14,3 +14,4 @@ coverage/
 NOTES.txt
 .agents/
 skills-lock.json
+.tophbase/

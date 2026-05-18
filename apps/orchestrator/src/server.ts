@@ -59,6 +59,7 @@ export async function start(): Promise<void> {
   const url = `http://localhost:${config.server.port}`;
   console.log('');
   console.log(`  Tophbase running at ${url}`);
+  console.log(`  Data dir:        ${config.project.dataDir}`);
   console.log(`  Publishable key: ${config.project.publishableKey}`);
   console.log(`  Secret key:      ${config.project.secretKey}`);
   console.log('');

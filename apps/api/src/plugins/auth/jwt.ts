@@ -43,14 +43,26 @@ export function generateProjectJwtSecret(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// Publishable key — safe to include in client-side code, used with createClient()
-export function generatePublishableKey(): string {
-  return `vb_publishable_${crypto.randomBytes(24).toString('hex')}`;
+// Publishable key — JWT with role=anon, compatible with Supabase createClient()
+export async function generatePublishableKey(jwtSecret: string): Promise<string> {
+  const key = new TextEncoder().encode(jwtSecret);
+  return new jose.SignJWT({ role: 'anon' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuedAt()
+    .setIssuer('supabase')
+    .setExpirationTime('100y')
+    .sign(key);
 }
 
-// Secret key — server-side only, bypasses RLS
-export function generateSecretKey(): string {
-  return `vb_secret_${crypto.randomBytes(24).toString('hex')}`;
+// Secret key — JWT with role=service_role, server-side only, bypasses RLS
+export async function generateSecretKey(jwtSecret: string): Promise<string> {
+  const key = new TextEncoder().encode(jwtSecret);
+  return new jose.SignJWT({ role: 'service_role' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuedAt()
+    .setIssuer('supabase')
+    .setExpirationTime('100y')
+    .sign(key);
 }
 
 // ── Shared utilities ──

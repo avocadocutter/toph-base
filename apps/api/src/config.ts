@@ -22,6 +22,7 @@ export interface Config {
   cors: { allowedOrigins: string };
   rateLimit: { auth: number; api: number };
   features: { requireAuthForApi: boolean };
+  storage: { maxFileSizeBytes: number };
 }
 
 function defaultDataDir(name: string): string {
@@ -44,7 +45,7 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
       refreshTokenExpiry: Number(env.REFRESH_TOKEN_EXPIRY ?? 604800),
     },
     server: {
-      port: Number(env.TOPHBASE_PORT ?? 8000),
+      port: Number(env.TOPHBASE_PORT),
       host: env.TOPHBASE_HOST ?? '127.0.0.1',
       logLevel: (env.LOG_LEVEL as Config['server']['logLevel']) ?? 'info',
     },
@@ -54,5 +55,8 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
       api: Number(env.RATE_LIMIT_API ?? 1000),
     },
     features: { requireAuthForApi: env.REQUIRE_AUTH_FOR_API === 'true' },
+    storage: {
+      maxFileSizeBytes: Number(env.STORAGE_MAX_FILE_SIZE_BYTES ?? 52_428_800), // 50 MB
+    },
   };
 }

@@ -54,3 +54,42 @@ export function projectAdminPath(path: string): string {
 export function projectRestPath(path: string): string {
   return `/rest/v1${path}`;
 }
+
+// Storage API — uses the secret key for admin-level access.
+// The secret key is fetched once and cached in module scope.
+let _secretKey: string | null = null;
+
+async function getSecretKey(): Promise<string> {
+  if (_secretKey) return _secretKey;
+  const res = await fetch('/tophbase/status');
+  const status = await res.json() as { secretKey: string };
+  _secretKey = status.secretKey;
+  return _secretKey;
+}
+
+export async function storageRequest<T>(
+  path: string,
+  options: RequestInit & { rawBody?: boolean } = {},
+): Promise<T> {
+  const key = await getSecretKey();
+  const headers: Record<string, string> = {
+    apikey: key,
+    ...(options.body != null && !options.rawBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.headers as Record<string, string>),
+  };
+  const response = await fetch(`/storage/v1${path}`, { ...options, headers });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ message: 'Request failed' }));
+    throw new ApiError(body.message || body.error?.message || `HTTP ${response.status}`);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json();
+}
+
+export async function storageSignedDownloadUrl(bucket: string, path: string): Promise<string> {
+  const res = await storageRequest<{ signedURL: string }>(
+    `/object/sign/${encodeURIComponent(bucket)}/${path}`,
+    { method: 'POST', body: JSON.stringify({ expiresIn: 300 }) },
+  );
+  return res.signedURL;
+}

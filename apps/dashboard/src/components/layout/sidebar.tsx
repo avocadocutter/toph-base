@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   BookOpen,
   GitBranch,
+  HardDrive,
 } from 'lucide-react';
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/tables', icon: Database, label: 'Tables' },
   { to: '/sql', icon: Terminal, label: 'SQL Editor' },
   { to: '/migrations', icon: GitBranch, label: 'Migrations' },
+  { to: '/storage', icon: HardDrive, label: 'Storage' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/policies', icon: Shield, label: 'Policies' },
 ];

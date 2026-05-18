@@ -17,6 +17,7 @@ import rlsPlugin from './plugins/rls/index.js';
 import realtimePlugin from './plugins/realtime/index.js';
 import tophbasePlugin from './plugins/tophbase/index.js';
 import localAdminPlugin from './plugins/local-admin/index.js';
+import storagePlugin from './plugins/storage/index.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -71,7 +72,7 @@ export async function createServer(): Promise<ServerContext> {
 
   (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect = projectConfig.dialect;
 
-  await fastify.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
+  await fastify.register(multipart, { limits: { fileSize: config.storage.maxFileSizeBytes } });
 
   await fastify.register(cors, {
     origin: config.cors.allowedOrigins === '*' ? true : config.cors.allowedOrigins.split(',').map(s => s.trim()),
@@ -86,8 +87,11 @@ export async function createServer(): Promise<ServerContext> {
       'Accept-Profile',
       'Content-Profile',
       'Range',
+      'x-upsert',
+      'x-metadata',
+      'cache-control',
     ],
-    exposedHeaders: ['Content-Range', 'X-Total-Count', 'Content-Profile'],
+    exposedHeaders: ['Content-Range', 'X-Total-Count', 'Content-Profile', 'ETag'],
   });
 
   await fastify.register(helmet, { contentSecurityPolicy: false });
@@ -124,8 +128,12 @@ export async function createServer(): Promise<ServerContext> {
     return { ok: true, version: dbVersion };
   });
 
+  const storageDir = path.join(dataDir, 'storage');
+  await fs.mkdir(storageDir, { recursive: true });
+
   await fastify.register(tophbasePlugin);
   await fastify.register(localAdminPlugin);
+  await fastify.register(storagePlugin, { storageDir, prefix: '/storage/v1' });
   await fastify.register(realtimePlugin);
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
@@ -136,5 +144,64 @@ export async function createServer(): Promise<ServerContext> {
   });
   await fastify.register(rlsPlugin);
 
+  startCronBridge(store);
+
   return { fastify, config, store };
+}
+
+function matchCronField(field: string, value: number): boolean {
+  if (field === '*') return true;
+  if (field.startsWith('*/')) return value % parseInt(field.slice(2), 10) === 0;
+  if (field.includes(',')) return field.split(',').some(v => parseInt(v, 10) === value);
+  if (field.includes('-')) {
+    const [a, b] = field.split('-').map(Number);
+    return value >= a && value <= b;
+  }
+  return parseInt(field, 10) === value;
+}
+
+function cronMatches(schedule: string, now: Date): boolean {
+  const parts = schedule.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [min, hour, dom, month, dow] = parts;
+  return (
+    matchCronField(min,   now.getMinutes()) &&
+    matchCronField(hour,  now.getHours()) &&
+    matchCronField(dom,   now.getDate()) &&
+    matchCronField(month, now.getMonth() + 1) &&
+    matchCronField(dow,   now.getDay())
+  );
+}
+
+function startCronBridge(store: PGliteStore): void {
+  setInterval(async () => {
+    const now = new Date();
+    let jobs: { jobid: number; schedule: string; command: string }[] = [];
+    try {
+      const result = await store.query<{ jobid: number; schedule: string; command: string }>(
+        `SELECT jobid, schedule, command FROM cron.job WHERE active = true`,
+      );
+      jobs = result.rows;
+    } catch {
+      return; // cron schema not yet bootstrapped
+    }
+
+    for (const job of jobs) {
+      if (!cronMatches(job.schedule, now)) continue;
+      const start = new Date();
+      let status = 'succeeded';
+      let message = '';
+      try {
+        await store.exec(job.command);
+      } catch (err) {
+        status = 'failed';
+        message = (err as Error).message;
+      }
+      await store.query(
+        `INSERT INTO cron.job_run_details (jobid, command, status, return_message, start_time, end_time)
+         VALUES ($1, $2, $3, $4, $5, now())`,
+        [job.jobid, job.command, status, message, start],
+      ).catch(() => {});
+    }
+  }, 60_000).unref();
 }

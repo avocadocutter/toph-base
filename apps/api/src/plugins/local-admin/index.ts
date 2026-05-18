@@ -7,13 +7,18 @@ import { z } from 'zod';
 import { BadRequestError, NotFoundError, AppError } from '../../lib/errors.js';
 import { readFile, writeFile, mkdir, readdir, access, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { preprocessMigrationSql } from '../../lib/sql-preprocessor.js';
 import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
 
 const require = createRequire(import.meta.url);
 const archiver = require('archiver') as typeof import('archiver');
 
-const MIGRATIONS_BASE = join(process.cwd(), 'migrations', 'local');
+function getMigrationsBase(): string {
+  const dir = process.env.TOPHBASE_MIGRATIONS_DIR;
+  if (!dir) throw new Error('TOPHBASE_MIGRATIONS_DIR is not set — run "tophbase freshman" first');
+  return dir;
+}
 
 const createTableSchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, 'Invalid table name'),
@@ -155,9 +160,9 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get('/admin/migrations', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest) => {
     const projectDb = request.projectDb!;
     await ensureMigrationsTable(projectDb);
-    await mkdir(MIGRATIONS_BASE, { recursive: true });
+    await mkdir(getMigrationsBase(), { recursive: true });
 
-    const files = (await readdir(MIGRATIONS_BASE)).filter(f => f.endsWith('.sql')).sort();
+    const files = (await readdir(getMigrationsBase())).filter(f => f.endsWith('.sql')).sort();
 
     const { rows: dbRows } = await projectDb.query<{
       name: string; status: string; applied_at: Date | null; error_message: string | null;
@@ -175,10 +180,10 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post('/admin/migrations', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest) => {
     const projectDb = request.projectDb!;
     await ensureMigrationsTable(projectDb);
-    await mkdir(MIGRATIONS_BASE, { recursive: true });
+    await mkdir(getMigrationsBase(), { recursive: true });
 
     const body = createMigrationSchema.parse(request.body);
-    const filePath = join(MIGRATIONS_BASE, body.name);
+    const filePath = join(getMigrationsBase(), body.name);
 
     try {
       await access(filePath);
@@ -221,7 +226,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
         continue;
       }
 
-      const filePath = join(MIGRATIONS_BASE, name);
+      const filePath = join(getMigrationsBase(), name);
       let sql: string;
       try {
         sql = await readFile(filePath, 'utf-8');
@@ -232,7 +237,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
 
       try {
         const startTime = Date.now();
-        await projectDb.exec(`BEGIN;\n${sql}\nCOMMIT;`);
+        await projectDb.exec(`BEGIN;\n${preprocessMigrationSql(sql)}\nCOMMIT;`);
         const duration = Date.now() - startTime;
 
         await projectDb.query(
@@ -271,7 +276,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
 
     if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(name)) throw new BadRequestError('Invalid migration filename');
 
-    const filePath = join(MIGRATIONS_BASE, name);
+    const filePath = join(getMigrationsBase(), name);
     try {
       const content = await readFile(filePath, 'utf-8');
       const { rows } = await projectDb.query<{ status: string; applied_at: Date | null; error_message: string | null }>(
@@ -298,7 +303,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     );
     if (rows[0]?.status === 'applied') throw new BadRequestError('Cannot delete applied migration');
 
-    const filePath = join(MIGRATIONS_BASE, name);
+    const filePath = join(getMigrationsBase(), name);
     await unlink(filePath);
     await projectDb.query('DELETE FROM auth._local_migrations WHERE name = $1', [name]);
 
@@ -306,8 +311,8 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get('/admin/migrations/download', { preHandler: [resolveLocalProject] }, async (_request: FastifyRequest, reply: FastifyReply) => {
-    await mkdir(MIGRATIONS_BASE, { recursive: true });
-    const files = (await readdir(MIGRATIONS_BASE)).filter(f => f.endsWith('.sql')).sort();
+    await mkdir(getMigrationsBase(), { recursive: true });
+    const files = (await readdir(getMigrationsBase())).filter(f => f.endsWith('.sql')).sort();
     if (files.length === 0) throw new NotFoundError('No migrations found');
 
     reply.header('Content-Type', 'application/zip');
@@ -317,7 +322,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     archive.pipe(reply.raw);
 
     for (const file of files) {
-      const content = await readFile(join(MIGRATIONS_BASE, file), 'utf-8');
+      const content = await readFile(join(getMigrationsBase(), file), 'utf-8');
       archive.append(content, { name: file });
     }
 
@@ -328,7 +333,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post('/admin/migrations/upload', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest) => {
     const projectDb = request.projectDb!;
     await ensureMigrationsTable(projectDb);
-    await mkdir(MIGRATIONS_BASE, { recursive: true });
+    await mkdir(getMigrationsBase(), { recursive: true });
 
     let replace = false;
     const sqlFiles: { name: string; content: string }[] = [];
@@ -366,7 +371,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
 
     const collisions: { name: string; status: string }[] = [];
     for (const file of files) {
-      try { await access(join(MIGRATIONS_BASE, file.name)); } catch { continue; }
+      try { await access(join(getMigrationsBase(), file.name)); } catch { continue; }
       const { rows } = await projectDb.query<{ status: string }>(
         'SELECT status FROM auth._local_migrations WHERE name = $1', [file.name],
       );
@@ -388,7 +393,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     const replaced: string[] = [];
 
     for (const file of files) {
-      await writeFile(join(MIGRATIONS_BASE, file.name), file.content, 'utf-8');
+      await writeFile(join(getMigrationsBase(), file.name), file.content, 'utf-8');
       const isCollision = collisions.find(c => c.name === file.name);
       if (isCollision) {
         await projectDb.query(

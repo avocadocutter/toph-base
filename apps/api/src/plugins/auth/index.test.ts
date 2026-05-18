@@ -19,6 +19,7 @@ const stubConfig: Config = {
   cors: { allowedOrigins: '*' },
   rateLimit: { auth: 10, api: 1000 },
   features: { requireAuthForApi: false },
+  storage: { maxFileSizeBytes: 52_428_800 },
 };
 
 const stubDb: DbPool = {

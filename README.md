@@ -154,6 +154,36 @@ Log in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you configured.
 
 ---
 
+## Supabase Compatibility
+
+Tophbase runs PostgreSQL 17 (via [PGlite](https://pglite.dev)) and is designed to make any Supabase migration apply cleanly locally.
+
+For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + storage), compatibility is **~95%**. The main gaps are Realtime, OAuth, and Edge Functions.
+
+| Feature | Status | Notes |
+|---|---|---|
+| SQL, schemas, triggers, functions, RLS | ✅ Identical | |
+| REST API (CRUD, filters, upsert, RPC) | ✅ Identical | |
+| Auth — email/password, JWT, sessions | ✅ Identical | |
+| `auth.uid()` / `auth.role()` / `auth.email()` | ✅ Identical | |
+| All standard pg extensions (`pgcrypto`, `pgvector`, `pg_trgm`, `citext`, `uuid-ossp`, `hstore`, `ltree`, `unaccent`, `pg_hashids`, `pg_uuidv7`, `pgtap`, `age`, `pg_ivm`, etc.) | ✅ Identical | 40+ extensions available |
+| `pgjwt` | ✅ Identical | Reimplemented in SQL via pgcrypto |
+| Storage (buckets, upload/download, signed URLs, copy/move) | ✅ Identical | Local filesystem backend |
+| `vault` | ⚠️ Simplified | Same API — secrets stored as plaintext locally, no encryption |
+| `pg_cron` | ⚠️ Simplified | Same API — jobs run via a Node.js bridge, stops when server stops |
+| `pgsodium` | ⚠️ Simplified | Delegates to pgcrypto — basic crypto works, key derivation differs |
+| `pg_jsonschema` | ⚠️ No-op | `jsonschema_is_valid()` always returns `true` — constraints not enforced |
+| `pg_net` | ❌ Clear error | Not available in local mode |
+| `pg_graphql` | ❌ Clear error | Not available in local mode |
+| `plv8`, `pgroonga`, `wrappers` | ❌ Clear error | Not available in local mode |
+| Auth — OAuth, magic link, MFA | ❌ Not implemented | |
+| Realtime | ❌ Not implemented | |
+| Edge Functions | ❌ Not implemented | |
+
+`CREATE EXTENSION IF NOT EXISTS` for unsupported extensions is stripped by the migration runner — migrations always apply cleanly.
+
+---
+
 ## License
 
 See [LICENSE](LICENSE) file.
