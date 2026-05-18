@@ -33,7 +33,7 @@
     "clsx": "^2.1.0",
     "codemirror": "^6.0.0",
     "lucide-react": "^0.468.0",
-    "react": "^19.0.0",
+    "react": "^19.2.6",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0",
     "sonner": "^1.7.0",
