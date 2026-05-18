@@ -94,24 +94,28 @@ function bucketRow(row: Record<string, unknown>) {
 // ── Object metadata shape ─────────────────────────────────────────────────────
 
 function objectMetadata(row: Record<string, unknown>) {
+  const size = row.size != null ? Number(row.size) : null;
+  const lastModified = row.updated_at instanceof Date
+    ? row.updated_at.toISOString()
+    : (row.updated_at as string | null) ?? null;
   return {
     eTag: row.etag,
-    size: row.size,
+    size,
     mimetype: row.content_type,
     cacheControl: row.cache_control,
-    lastModified: row.updated_at,
-    contentLength: row.size,
+    lastModified,
+    contentLength: size,
     httpStatusCode: 200,
   };
 }
 
-function fileRow(row: Record<string, unknown>) {
+function fileRow(row: Record<string, unknown>, nameOverride?: string) {
   return {
-    name: row.name,
+    name: nameOverride ?? row.name,
     id: row.id,
-    updated_at: row.updated_at,
-    created_at: row.created_at,
-    last_accessed_at: row.last_accessed_at,
+    updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : (row.updated_at ?? null),
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : (row.created_at ?? null),
+    last_accessed_at: row.last_accessed_at instanceof Date ? row.last_accessed_at.toISOString() : (row.last_accessed_at ?? null),
     metadata: objectMetadata(row),
   };
 }
@@ -427,7 +431,7 @@ const storagePlugin: FastifyPluginAsync<StoragePluginOptions> = async (fastify, 
       [bucket, prefixes],
     );
     await deleteObjects(storageDir, bucket, rows.map((r) => r.name as string));
-    return reply.send(rows.map(fileRow));
+    return reply.send(rows.map((r) => fileRow(r)));
   });
 
   // ── Copy / Move ────────────────────────────────────────────────────────────
@@ -559,7 +563,7 @@ const storagePlugin: FastifyPluginAsync<StoragePluginOptions> = async (fastify, 
           result.push({ name: folder, id: null, updated_at: null, created_at: null, last_accessed_at: null, metadata: null });
         }
       } else {
-        result.push(fileRow(row));
+        result.push(fileRow(row, name));
       }
     }
 
@@ -602,11 +606,7 @@ const storagePlugin: FastifyPluginAsync<StoragePluginOptions> = async (fastify, 
       return reply.send({
         hasNext,
         nextCursor: hasNext ? (items[items.length - 1].name as string) : null,
-        objects: items.map((r) => ({
-          id: r.id, key: r.name, name: (r.name as string).slice(prefix.length),
-          updated_at: r.updated_at, created_at: r.created_at,
-          metadata: objectMetadata(r), last_accessed_at: r.last_accessed_at,
-        })),
+        objects: items.map((r) => fileRow(r, (r.name as string).slice(prefix.length))),
         folders: [],
       });
     }
@@ -625,11 +625,7 @@ const storagePlugin: FastifyPluginAsync<StoragePluginOptions> = async (fastify, 
           folders.push({ key: folderKey, name: name.slice(0, slashIdx + 1), updated_at: null, created_at: null });
         }
       } else {
-        objects.push({
-          id: row.id, key: row.name, name,
-          updated_at: row.updated_at, created_at: row.created_at,
-          metadata: objectMetadata(row), last_accessed_at: row.last_accessed_at,
-        });
+        objects.push(fileRow(row, name));
       }
     }
 

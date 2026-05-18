@@ -18,6 +18,7 @@ export interface TophbaseStatus {
 
 const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Reply: TophbaseStatus }>('/tophbase/status', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store');
     const { project, server } = fastify.config;
     reply.send({
       configured: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect != null,
