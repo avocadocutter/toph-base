@@ -53,11 +53,15 @@ jobs:
         with:
           node-version: '20'
           cache: pnpm
-          cache-dependency-path: |
-            apps/api/pnpm-lock.yaml
-            apps/dashboard/pnpm-lock.yaml
-      - run: make install
-      - run: make lint
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Lint API
+        working-directory: apps/api
+        run: pnpm lint
+      - name: Lint dashboard
+        working-directory: apps/dashboard
+        run: pnpm lint
 
   test:
     name: Test
