@@ -3,6 +3,7 @@ import { requirePlatformAdmin } from '../../hooks/authenticate.js';
 import { createProjectResolver } from '../../hooks/resolve-project.js';
 import { introspectSchema, invalidateCache } from '../introspection/inspector.js';
 import { quoteIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
+import { preprocessMigrationSql } from '../../lib/sql-preprocessor.js';
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
 import { AppError, BadRequestError, NotFoundError, ConflictError } from '../../lib/errors.js';
@@ -731,6 +732,14 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
         sql = await readFile(filePath, 'utf-8');
       } catch (error: any) {
         failed.push({ name, error: 'File not found' });
+        continue;
+      }
+
+      // Preprocess: rewrite Supabase-isms and error on unsupported patterns
+      try {
+        sql = preprocessMigrationSql(sql);
+      } catch (error: any) {
+        failed.push({ name, error: error.message });
         continue;
       }
 
