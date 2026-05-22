@@ -68,8 +68,11 @@ export async function projectSignupHandler(request: FastifyRequest, reply: Fasti
       refresh_token: refreshToken,
       user: {
         id: user.id,
+        aud: 'authenticated',
         email: user.email,
         role: user.role,
+        app_metadata: { provider: 'email' },
+        user_metadata: {},
         email_confirmed_at: user.email_confirmed ? user.created_at : null,
         created_at: user.created_at,
         updated_at: user.updated_at,
@@ -96,7 +99,7 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
     await client.query(`SET LOCAL ROLE service_role`);
 
     const result = await client.query(
-      `SELECT id, email, password_hash, role, is_disabled, email_confirmed, created_at, updated_at, last_sign_in_at
+      `SELECT id, email, password_hash, role, is_disabled, email_confirmed, metadata, created_at, updated_at, last_sign_in_at
        FROM auth.users WHERE email = $1`,
       [email],
     );
@@ -144,8 +147,11 @@ export async function projectSigninHandler(request: FastifyRequest, reply: Fasti
       refresh_token: refreshToken,
       user: {
         id: user.id,
+        aud: 'authenticated',
         email: user.email,
         role: user.role,
+        app_metadata: { provider: 'email' },
+        user_metadata: user.metadata || {},
         email_confirmed_at: user.email_confirmed ? user.created_at : null,
         last_sign_in_at: user.last_sign_in_at,
         created_at: user.created_at,
@@ -177,7 +183,7 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
     await client.query(`SET LOCAL ROLE service_role`);
 
     const sessionResult = await client.query(
-      `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled, u.email_confirmed, u.created_at, u.updated_at, u.last_sign_in_at
+      `SELECT s.id, s.user_id, s.family_id, s.expires_at, u.email, u.role, u.is_disabled, u.email_confirmed, u.metadata, u.created_at, u.updated_at, u.last_sign_in_at
        FROM auth.sessions s
        JOIN auth.users u ON s.user_id = u.id
        WHERE s.refresh_token_hash = $1 AND s.expires_at > now()`,
@@ -218,8 +224,11 @@ export async function projectRefreshHandler(request: FastifyRequest, reply: Fast
       refresh_token: newRefreshToken,
       user: {
         id: session.user_id,
+        aud: 'authenticated',
         email: session.email,
         role: session.role,
+        app_metadata: { provider: 'email' },
+        user_metadata: session.metadata || {},
         email_confirmed_at: session.email_confirmed ? session.created_at : null,
         last_sign_in_at: session.last_sign_in_at,
         created_at: session.created_at,
@@ -284,11 +293,12 @@ export async function projectMeHandler(request: FastifyRequest, reply: FastifyRe
     // Supabase-compatible response format
     reply.send({
       id: user.id,
+      aud: 'authenticated',
       email: user.email,
       role: user.role,
-      email_confirmed_at: user.email_confirmed ? user.created_at : null,
-      user_metadata: user.metadata || {},
       app_metadata: { provider: 'email' },
+      user_metadata: user.metadata || {},
+      email_confirmed_at: user.email_confirmed ? user.created_at : null,
       created_at: user.created_at,
       updated_at: user.updated_at,
       last_sign_in_at: user.last_sign_in_at,

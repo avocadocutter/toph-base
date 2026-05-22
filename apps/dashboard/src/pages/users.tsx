@@ -20,7 +20,8 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/utils';
-import { Search, UserX, UserCheck, UserPlus, KeyRound } from 'lucide-react';
+import { Search, UserX, UserCheck, UserPlus, KeyRound, RefreshCw } from 'lucide-react';
+import { RecordSidebar } from '@/components/ui/record-sidebar';
 
 export function UsersPage() {
   const [search, setSearch] = useState('');
@@ -32,9 +33,10 @@ export function UsersPage() {
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
   const [resetPasswordEmail, setResetPasswordEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ['admin-users', search],
     queryFn: () =>
       api.get<PaginatedResponse<UserRecord>>(
@@ -81,6 +83,18 @@ export function UsersPage() {
   });
 
   const columns: ColumnDef<UserRecord, unknown>[] = [
+    {
+      accessorKey: 'id',
+      header: 'ID',
+      cell: ({ row }) => (
+        <span
+          className="font-mono text-xs text-muted-foreground"
+          title={row.original.id}
+        >
+          {row.original.id.slice(0, 8)}…
+        </span>
+      ),
+    },
     {
       accessorKey: 'email',
       header: 'Email',
@@ -157,6 +171,10 @@ export function UsersPage() {
         <h1 className="text-lg font-bold">Users</h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{data?.count ?? 0} total</span>
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isRefetching}>
+            <RefreshCw size={14} className={isRefetching ? 'animate-spin' : ''} />
+            Refresh
+          </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -249,7 +267,17 @@ export function UsersPage() {
         />
       </div>
 
-      <DataTable data={data?.data ?? []} columns={columns} loading={isLoading} />
+      <DataTable
+        data={data?.data ?? []}
+        columns={columns}
+        loading={isLoading}
+        onRowClick={(row) => setSelectedUser(row)}
+      />
+      <RecordSidebar
+        title="User details"
+        record={selectedUser as Record<string, unknown> | null}
+        onClose={() => setSelectedUser(null)}
+      />
 
       <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
         <DialogContent>

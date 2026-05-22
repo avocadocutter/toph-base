@@ -9,6 +9,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Shield, Table, Rows3, Key, RefreshCw, ChevronRight } from 'lucide-react';
+import { RecordSidebar } from '@/components/ui/record-sidebar';
 
 type Tab = 'data' | 'structure' | 'rls';
 
@@ -16,6 +17,7 @@ export function TableDetailPage() {
   const { table = '' } = useParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('data');
+  const [selectedRow, setSelectedRow] = useState<Record<string, unknown> | null>(null);
   const queryClient = useQueryClient();
 
   const tableInfo = useQuery({
@@ -158,6 +160,12 @@ export function TableDetailPage() {
             data={tableData.data?.data ?? []}
             columns={dataColumns}
             loading={tableData.isLoading}
+            onRowClick={(row) => setSelectedRow(row)}
+          />
+          <RecordSidebar
+            title={`${table} record`}
+            record={selectedRow}
+            onClose={() => setSelectedRow(null)}
           />
         </div>
       )}
