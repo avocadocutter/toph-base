@@ -45,49 +45,53 @@ export async function start(): Promise<void> {
     fastify.log.debug('Dashboard not built — serving API only');
   }
 
-  const pgPort = process.env.TOPHBASE_PG_PORT
-    ? parseInt(process.env.TOPHBASE_PG_PORT, 10)
-    : config.server.port + 1;
+  const pgPortRaw = process.env.TOPHBASE_PG_PORT;
+  const pgPort = pgPortRaw ? parseInt(pgPortRaw, 10) : undefined;
 
-  // pglite-socket listens on a Unix socket internally so we can proxy in front of it
-  const unixPath = path.join(os.tmpdir(), `tophbase-${pgPort}.sock`);
-  try { await fs.unlink(unixPath); } catch { /* ignore if missing */ }
+  let pgServer: PGLiteSocketServer | undefined;
+  let tcpServer: net.Server | undefined;
 
-  const pgServer = new PGLiteSocketServer({ db: store.getPglite(), path: unixPath });
-  await pgServer.start();
+  if (pgPort !== undefined) {
+    // pglite-socket listens on a Unix socket internally so we can proxy in front of it
+    const unixPath = path.join(os.tmpdir(), `tophbase-${pgPort}.sock`);
+    try { await fs.unlink(unixPath); } catch { /* ignore if missing */ }
 
-  // TCP server that handles the PostgreSQL SSLRequest before forwarding to pglite-socket
-  const tcpServer = net.createServer((clientSocket) => {
-    clientSocket.once('data', (firstChunk) => {
-      clientSocket.pause();
+    pgServer = new PGLiteSocketServer({ db: store.getPglite(), path: unixPath });
+    await pgServer.start();
 
-      const forward = (prelude: Buffer) => {
-        const internal = net.createConnection(unixPath);
-        internal.once('connect', () => {
-          if (prelude.length > 0) internal.write(prelude);
-          clientSocket.pipe(internal);
-          internal.pipe(clientSocket);
-          clientSocket.resume();
-        });
-        internal.on('error', () => clientSocket.destroy());
-        clientSocket.on('error', () => internal.destroy());
-      };
+    // TCP server that handles the PostgreSQL SSLRequest before forwarding to pglite-socket
+    tcpServer = net.createServer((clientSocket) => {
+      clientSocket.once('data', (firstChunk) => {
+        clientSocket.pause();
 
-      if (firstChunk.length >= 8 && firstChunk.readInt32BE(4) === SSL_REQUEST_CODE) {
-        clientSocket.write(Buffer.from('N')); // decline SSL, client will retry in plaintext
-        forward(firstChunk.slice(8));
-      } else {
-        forward(firstChunk);
-      }
+        const forward = (prelude: Buffer) => {
+          const internal = net.createConnection(unixPath);
+          internal.once('connect', () => {
+            if (prelude.length > 0) internal.write(prelude);
+            clientSocket.pipe(internal);
+            internal.pipe(clientSocket);
+            clientSocket.resume();
+          });
+          internal.on('error', () => clientSocket.destroy());
+          clientSocket.on('error', () => internal.destroy());
+        };
+
+        if (firstChunk.length >= 8 && firstChunk.readInt32BE(4) === SSL_REQUEST_CODE) {
+          clientSocket.write(Buffer.from('N')); // decline SSL, client will retry in plaintext
+          forward(firstChunk.slice(8));
+        } else {
+          forward(firstChunk);
+        }
+      });
+
+      clientSocket.on('error', () => {});
     });
 
-    clientSocket.on('error', () => {});
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    tcpServer.listen(pgPort, '127.0.0.1', resolve);
-    tcpServer.once('error', reject);
-  });
+    await new Promise<void>((resolve, reject) => {
+      tcpServer!.listen(pgPort, '127.0.0.1', resolve);
+      tcpServer!.once('error', reject);
+    });
+  }
 
   let shuttingDown = false;
   const shutdown = async () => {
@@ -95,8 +99,8 @@ export async function start(): Promise<void> {
     shuttingDown = true;
     fastify.log.info('Shutting down...');
     setTimeout(() => process.exit(1), 5000).unref();
-    tcpServer.close();
-    await pgServer.stop();
+    tcpServer?.close();
+    await pgServer?.stop();
     await fastify.close();
     await store.end();
     process.exit(0);
@@ -112,12 +116,14 @@ export async function start(): Promise<void> {
   console.log(`  Data dir:        ${config.project.dataDir}`);
   console.log(`  Publishable key: ${config.project.publishableKey}`);
   console.log(`  Secret key:      ${config.project.secretKey}`);
-  console.log('');
-  console.log(`  Postgres (Postico/psql)`);
-  console.log(`    Host:     127.0.0.1`);
-  console.log(`    Port:     ${pgPort}`);
-  console.log(`    Database: postgres`);
-  console.log(`    User:     postgres`);
-  console.log(`    Password: (leave blank)`);
+  if (pgPort !== undefined) {
+    console.log('');
+    console.log(`  Postgres (Postico/psql)`);
+    console.log(`    Host:     127.0.0.1`);
+    console.log(`    Port:     ${pgPort}`);
+    console.log(`    Database: postgres`);
+    console.log(`    User:     postgres`);
+    console.log(`    Password: (leave blank)`);
+  }
   console.log('');
 }

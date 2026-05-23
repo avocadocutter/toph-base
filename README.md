@@ -17,13 +17,27 @@ Two commands drive the full lifecycle:
 
 ### `tophbase freshman`
 
-Starts a local Supabase-compatible backend inside your project. On first run it asks for a port and a migrations directory, then saves the answers to `.tophbase/config.json`. Subsequent runs use the saved config — no prompts.
+Starts a local Supabase-compatible backend inside your project. On first run it prompts for a port, a migrations directory, and whether to expose a Postgres wire protocol server (for connecting with tools like Postico or `psql`). Answers are saved to `.tophbase/config.json`; subsequent runs use the saved config — no prompts.
 
 ```bash
 tophbase freshman
 # or override saved config:
 tophbase freshman --port 8000 --migrations-dir ./supabase/migrations
+# enable the Postgres wire protocol server on a specific port:
+tophbase freshman --pg-wire-port 5433
 ```
+
+The Postgres wire protocol server is **opt-in**. When enabled, tophbase exposes a TCP listener that speaks the PostgreSQL wire protocol, backed by the embedded PGlite instance. This lets you connect with any standard Postgres client:
+
+```
+Host:     127.0.0.1
+Port:     <pg-wire-port>
+Database: postgres
+User:     postgres
+Password: (leave blank)
+```
+
+If you pass `--pg-wire-port`, it overrides the saved value. If no port is saved and the flag is omitted, the interactive prompt asks whether to enable it — and if you answer yes, a port is **required** (no default).
 
 Everything lives in `.tophbase/` in the current directory (data, config). Add `.tophbase/` to your `.gitignore`.
 

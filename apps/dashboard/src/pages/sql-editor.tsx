@@ -4,6 +4,7 @@ import { api, projectAdminPath, ApiError } from '@/lib/api-client';
 import { useResolvedTheme } from '@/stores/ui-store';
 import { SqlEditor } from '@/components/sql-editor/sql-editor';
 import { DataTable } from '@/components/data-table/data-table';
+import { RecordSidebar } from '@/components/ui/record-sidebar';
 import { Button } from '@/components/ui/button';
 import type { SqlResult } from '@/types';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -37,6 +38,7 @@ export function SqlEditorPage() {
   const editorViewRef = useRef<EditorView | null>(null);
   const initialQuery = useRef(loadStoredQuery()).current;
   const [hasSelection, setHasSelection] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<Record<string, unknown> | null>(null);
 
   const executeSql = useMutation({
     mutationFn: (query: string) => api.post<SqlResult>(projectAdminPath('/sql'), { query }),
@@ -57,12 +59,14 @@ export function SqlEditorPage() {
         : view.state.doc.toString().trim();
     }
     if (!q || executeSql.isPending) return;
+    setSelectedRow(null);
     executeSql.mutate(q);
   };
 
   const handleRunAll = () => {
     const q = editorViewRef.current?.state.doc.toString().trim() ?? '';
     if (!q || executeSql.isPending) return;
+    setSelectedRow(null);
     executeSql.mutate(q);
   };
 
@@ -72,6 +76,7 @@ export function SqlEditorPage() {
     const { from, to } = view.state.selection.main;
     const q = from !== to ? view.state.sliceDoc(from, to).trim() : '';
     if (!q || executeSql.isPending) return;
+    setSelectedRow(null);
     executeSql.mutate(q);
   };
 
@@ -255,12 +260,22 @@ export function SqlEditorPage() {
                 Query executed successfully — {result.rowCount} row{result.rowCount !== 1 ? 's' : ''} affected.
               </div>
             ) : (
-              <DataTable data={result.rows} columns={resultColumns} />
+              <DataTable
+                data={result.rows}
+                columns={resultColumns}
+                onRowClick={(row) => setSelectedRow(row as Record<string, unknown>)}
+              />
             )
           )}
 
         </div>
       </div>
+
+      <RecordSidebar
+        title="Row Detail"
+        record={selectedRow}
+        onClose={() => setSelectedRow(null)}
+      />
     </div>
   );
 }

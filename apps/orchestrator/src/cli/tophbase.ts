@@ -31,6 +31,7 @@ const LOCAL_CONFIG_FILE = `${LOCAL_CONFIG_DIR}/config.json`;
 interface LocalConfig {
   port: number;
   migrationsDir: string;
+  pgWirePort?: number;
 }
 
 async function readLocalConfig(): Promise<Partial<LocalConfig>> {
@@ -96,8 +97,36 @@ async function cmdFreshman(args: string[]) {
     migrationsDir = path.resolve(answer.trim() || suggested);
   }
 
-  if (isFirstRun || flagPort || flagMigrations) {
-    await writeLocalConfig({ port, migrationsDir });
+  // ── Postgres wire protocol (optional) ────────────────────────────────────
+  const flagPgWirePort = argValue(args, '--pg-wire-port');
+  let pgWirePort: number | undefined;
+
+  if (flagPgWirePort) {
+    pgWirePort = Number(flagPgWirePort);
+    if (isNaN(pgWirePort)) { console.error('tophbase freshman: --pg-wire-port must be a number'); process.exit(1); }
+  } else if (saved.pgWirePort) {
+    pgWirePort = saved.pgWirePort;
+  } else {
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const enable = await prompt(rl, '  Enable Postgres wire protocol? [y/N]: ');
+    if (enable.trim().toLowerCase() === 'y') {
+      let answer = '';
+      while (!answer.trim()) {
+        answer = await prompt(rl, '  PG wire port (required): ');
+        if (!answer.trim()) console.log('  Port is required.');
+      }
+      pgWirePort = Number(answer.trim());
+      if (isNaN(pgWirePort)) {
+        rl.close();
+        console.error('tophbase freshman: PG wire port must be a number');
+        process.exit(1);
+      }
+    }
+    rl.close();
+  }
+
+  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort) {
+    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }) });
     if (isFirstRun) console.log(`  Config saved to ${LOCAL_CONFIG_FILE}`);
   }
 
@@ -105,12 +134,14 @@ async function cmdFreshman(args: string[]) {
   console.log(`  Data dir:       ${dataDir}`);
   console.log(`  Port:           ${port}`);
   console.log(`  Migrations dir: ${migrationsDir}`);
+  if (pgWirePort !== undefined) console.log(`  PG wire port:   ${pgWirePort}`);
   console.log('');
 
   process.env.TOPHBASE_DATA_DIR = dataDir;
   process.env.TOPHBASE_PROJECT = path.basename(process.cwd());
   process.env.TOPHBASE_PORT = String(port);
   process.env.TOPHBASE_MIGRATIONS_DIR = migrationsDir;
+  if (pgWirePort !== undefined) process.env.TOPHBASE_PG_PORT = String(pgWirePort);
 
   const { start } = await import('../server.js');
   await start();
@@ -175,6 +206,7 @@ function printHelp() {
                Flags (override saved config):
                  --port <port>
                  --migrations-dir <path>
+                 --pg-wire-port <port>   Enable Postgres wire protocol on this port (required if enabling)
 
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema
