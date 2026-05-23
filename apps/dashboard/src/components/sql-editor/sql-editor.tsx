@@ -18,33 +18,46 @@ const lightTheme = EditorView.theme({
     borderRight: '1px solid var(--color-border)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'oklch(0.93 0.02 250)',
+    backgroundColor: 'oklch(0.89 0.03 250)',
   },
   '.cm-activeLine': {
-    backgroundColor: 'oklch(0.93 0.02 250)',
+    backgroundColor: 'oklch(0.89 0.03 250)',
+    mixBlendMode: 'multiply',
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--color-foreground)',
   },
   '.cm-selectionBackground': {
-    backgroundColor: 'oklch(0.72 0.09 240 / 0.25) !important',
+    backgroundColor: 'oklch(0.82 0.08 240) !important',
   },
   '&.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'oklch(0.72 0.09 240 / 0.35) !important',
+    backgroundColor: 'oklch(0.74 0.12 240) !important',
   },
 });
 
+function getSelectedOrAll(view: EditorView): string {
+  const { from, to } = view.state.selection.main;
+  if (from !== to) return view.state.sliceDoc(from, to).trim();
+  return view.state.doc.toString().trim();
+}
+
 interface SqlEditorProps {
   onExecute: (query: string) => void;
+  onChange?: (value: string) => void;
+  onSelectionChange?: (hasSelection: boolean) => void;
   initialValue?: string;
   viewRef?: MutableRefObject<EditorView | null>;
   theme?: 'light' | 'dark';
 }
 
-export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewRef, theme = 'dark' }: SqlEditorProps) {
+export function SqlEditor({ onExecute, onChange, onSelectionChange, initialValue = '', viewRef: externalViewRef, theme = 'dark' }: SqlEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
 
   const editorCallback = useCallback(
     (node: HTMLDivElement | null) => {
@@ -55,12 +68,20 @@ export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewR
         {
           key: 'Mod-Enter',
           run: (view) => {
-            const query = view.state.doc.toString().trim();
+            const query = getSelectedOrAll(view);
             if (query) onExecute(query);
             return true;
           },
         },
       ]);
+
+      const changeListener = EditorView.updateListener.of((update) => {
+        if (update.docChanged) onChangeRef.current?.(update.state.doc.toString());
+        if (update.selectionSet || update.docChanged) {
+          const { from, to } = update.state.selection.main;
+          onSelectionChangeRef.current?.(from !== to);
+        }
+      });
 
       const state = EditorState.create({
         doc: initialValue,
@@ -71,6 +92,7 @@ export function SqlEditor({ onExecute, initialValue = '', viewRef: externalViewR
           autocompletion(),
           keymap.of([...defaultKeymap, indentWithTab]),
           executeKeymap,
+          changeListener,
           EditorView.theme({
             '&': { height: '100%', fontSize: '13px' },
             '.cm-scroller': { overflow: 'auto' },

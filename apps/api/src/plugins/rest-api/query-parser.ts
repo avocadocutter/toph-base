@@ -183,7 +183,7 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
   }
 
   // Parse AND filters: any remaining param with op.value syntax, including not.op.value
-  const reservedKeys = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
+  const reservedKeys = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or', 'columns']);
   for (const [key, rawValue] of Object.entries(querystring)) {
     if (reservedKeys.has(key) || !rawValue) continue;
     parsed.filters.push(parseOneFilter(key, rawValue));

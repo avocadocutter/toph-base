@@ -83,6 +83,10 @@ export class PGliteStore implements DbPool {
     await this.db.waitReady;
   }
 
+  getPglite(): PGlite {
+    return this.db;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async query<T = any>(text: string, values?: unknown[]): Promise<QueryResult<T>> {
     const result = await this.db.query<T>(text, values as unknown[] | undefined);
