@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { api, projectAdminPath, ApiError } from '@/lib/api-client';
 import { useResolvedTheme } from '@/stores/ui-store';
@@ -10,10 +10,20 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type { EditorView } from '@codemirror/view';
 import { Play, Clock, AlertCircle, CheckCircle2, Terminal, Table2, X, Loader2 } from 'lucide-react';
 
-const INITIAL_QUERY = `SELECT table_name, table_type
+const STORAGE_KEY = 'toph:sql-editor:query';
+
+const DEFAULT_QUERY = `SELECT table_name, table_type
 FROM information_schema.tables
 WHERE table_schema = 'public'
 ORDER BY table_name;`;
+
+function loadStoredQuery(): string {
+  try {
+    return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_QUERY;
+  } catch {
+    return DEFAULT_QUERY;
+  }
+}
 
 interface PgError {
   message?: string;
@@ -25,13 +35,42 @@ interface PgError {
 export function SqlEditorPage() {
   const resolvedTheme = useResolvedTheme();
   const editorViewRef = useRef<EditorView | null>(null);
+  const initialQuery = useRef(loadStoredQuery()).current;
+  const [hasSelection, setHasSelection] = useState(false);
 
   const executeSql = useMutation({
     mutationFn: (query: string) => api.post<SqlResult>(projectAdminPath('/sql'), { query }),
   });
 
+  const handleQueryChange = (value: string) => {
+    try { localStorage.setItem(STORAGE_KEY, value); } catch { /* ignore */ }
+  };
+
   const handleExecute = (query?: string) => {
-    const q = query ?? editorViewRef.current?.state.doc.toString().trim() ?? '';
+    let q = query;
+    if (!q) {
+      const view = editorViewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      q = from !== to
+        ? view.state.sliceDoc(from, to).trim()
+        : view.state.doc.toString().trim();
+    }
+    if (!q || executeSql.isPending) return;
+    executeSql.mutate(q);
+  };
+
+  const handleRunAll = () => {
+    const q = editorViewRef.current?.state.doc.toString().trim() ?? '';
+    if (!q || executeSql.isPending) return;
+    executeSql.mutate(q);
+  };
+
+  const handleRunSelected = () => {
+    const view = editorViewRef.current;
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    const q = from !== to ? view.state.sliceDoc(from, to).trim() : '';
     if (!q || executeSql.isPending) return;
     executeSql.mutate(q);
   };
@@ -90,9 +129,21 @@ export function SqlEditorPage() {
               <X size={11} />
               Clear
             </Button>
+            {hasSelection && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRunSelected}
+                disabled={executeSql.isPending}
+                className="h-7 gap-1.5 px-2.5 text-xs"
+              >
+                <Play size={11} />
+                Run Selected
+              </Button>
+            )}
             <Button
               size="sm"
-              onClick={() => handleExecute()}
+              onClick={handleRunAll}
               disabled={executeSql.isPending}
               className="h-7 gap-1.5 px-2.5 text-xs"
             >
@@ -114,7 +165,9 @@ export function SqlEditorPage() {
         <div className="min-h-0 flex-1">
           <SqlEditor
             onExecute={handleExecute}
-            initialValue={INITIAL_QUERY}
+            onChange={handleQueryChange}
+            onSelectionChange={setHasSelection}
+            initialValue={initialQuery}
             viewRef={editorViewRef}
             theme={resolvedTheme}
           />

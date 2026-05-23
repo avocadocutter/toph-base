@@ -210,6 +210,9 @@ importers:
 
   apps/orchestrator:
     dependencies:
+      '@electric-sql/pglite-socket':
+        specifier: ^0.1.5
+        version: 0.1.5(@electric-sql/pglite@0.4.5)
       '@fastify/static':
         specifier: ^8.1.0
         version: 8.3.0
@@ -357,6 +360,12 @@ packages:
     engines: {bun: '>=1', deno: '>=2.7.10', node: '>=16'}
     peerDependencies:
       '@noble/ciphers': ^1.0.0
+
+  '@electric-sql/pglite-socket@0.1.5':
+    resolution: {integrity: sha512-/RAye+3EPKfO9nY4tljzxXmkT7yIpFDm0L3F+c28b+Z6uxPOjy/Zz/QEHYHXcrfuUC88/a9S72EO0+3E0j97wQ==}
+    hasBin: true
+    peerDependencies:
+      '@electric-sql/pglite': 0.4.5
 
   '@electric-sql/pglite@0.4.5':
     resolution: {integrity: sha512-aGG2zGEyZzGWKy8P+9ZoNUV0jxt1+hgbeTf+bVAYyxVZZLXg3/9aFlfLxb08AYZVAfAkQlQIysmWjhc5hwDG8g==}
@@ -3440,6 +3449,10 @@ snapshots:
   '@ecies/ciphers@0.2.6(@noble/ciphers@1.3.0)':
     dependencies:
       '@noble/ciphers': 1.3.0
+
+  '@electric-sql/pglite-socket@0.1.5(@electric-sql/pglite@0.4.5)':
+    dependencies:
+      '@electric-sql/pglite': 0.4.5
 
   '@electric-sql/pglite@0.4.5': {}
 
