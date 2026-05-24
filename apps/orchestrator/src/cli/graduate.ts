@@ -163,11 +163,9 @@ async function cmdGraduateRailway(): Promise<void> {
     path.join(stageDir, 'start.sh'),
     [
       '#!/bin/sh',
-      'mkdir -p /app/.tophbase',
-      // Pre-write config so freshman reads saved values and skips port/migrations/functions prompts
-      `printf '{"port":%s,"migrationsDir":"/app/migrations","functionsDir":"/app/supabase/functions"}' "$PORT" > /app/.tophbase/config.json`,
-      // Pipe a single newline to answer the pg-wire prompt (empty = N = disabled)
-      `printf '\\n' | node_modules/.bin/tophbase freshman`,
+      // Pass flags directly so freshman skips port/migrations/functions prompts.
+      // Pipe a single newline to answer the pg-wire prompt (empty = N = disabled).
+      `printf '\\n' | node_modules/.bin/tophbase freshman --port "$PORT" --migrations-dir /app/migrations --functions-dir /app/supabase/functions`,
     ].join('\n') + '\n',
     'utf8',
   );
