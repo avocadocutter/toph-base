@@ -146,12 +146,27 @@ async function cmdGraduateRailway(): Promise<void> {
     }
   }
 
-  // 6. Write Dockerfile + startup script.
+  // 6. Copy local migrations into the staging dir so they land in the image.
+  let localConfig: Record<string, unknown> = {};
+  try { localConfig = JSON.parse(await fs.readFile('.tophbase/config.json', 'utf8')) as Record<string, unknown>; } catch { /* no local config */ }
+  const localMigrationsDir = typeof localConfig.migrationsDir === 'string'
+    ? localConfig.migrationsDir
+    : path.resolve('./supabase/migrations');
+
+  const stageMigrationsDir = path.join(stageDir, 'migrations');
+  let hasMigrations = false;
+  try {
+    await fs.cp(localMigrationsDir, stageMigrationsDir, { recursive: true });
+    hasMigrations = true;
+    console.log(`\nCopied migrations from ${localMigrationsDir}`);
+  } catch {
+    console.log(`\nNo migrations found at ${localMigrationsDir} — skipping`);
+  }
+
+  // 7. Write Dockerfile + startup script.
   //    The pnpm override redirects @tophbase/api to the local tarball so pnpm never
   //    hits the registry for it. Volume is mounted at /app/.tophbase, which is exactly
   //    where freshman writes data (path.resolve('.tophbase') from /app).
-  //    start.sh pre-writes config.json so freshman skips all interactive prompts except
-  //    pg-wire (no flag/config to disable it), which is handled by piping a newline.
   const stagePkg = {
     name: 'tophbase-service',
     version: '1.0.0',
@@ -177,6 +192,7 @@ async function cmdGraduateRailway(): Promise<void> {
       'RUN npm install -g pnpm@10',
       'WORKDIR /app',
       `COPY ${apiTarball} ${orchTarball} start.sh ./`,
+      ...(hasMigrations ? ['COPY migrations ./migrations'] : []),
       `RUN echo '${JSON.stringify(stagePkg)}' > package.json`,
       `RUN pnpm add ./${apiTarball} ./${orchTarball}`,
       'RUN chmod +x start.sh',
