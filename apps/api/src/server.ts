@@ -18,6 +18,7 @@ import realtimePlugin from './plugins/realtime/index.js';
 import tophbasePlugin from './plugins/tophbase/index.js';
 import localAdminPlugin from './plugins/local-admin/index.js';
 import storagePlugin from './plugins/storage/index.js';
+import edgeFunctionsPlugin from './plugins/edge-functions/index.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -143,6 +144,15 @@ export async function createServer(): Promise<ServerContext> {
     authHook: config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional,
   });
   await fastify.register(rlsPlugin);
+
+  if (config.functions.dir) {
+    await fastify.register(edgeFunctionsPlugin, {
+      functionsDir: config.functions.dir,
+      supabaseUrl: `http://${config.server.host}:${config.server.port}`,
+      publishableKey: config.project.publishableKey,
+      secretKey: config.project.secretKey,
+    });
+  }
 
   startCronBridge(store);
 

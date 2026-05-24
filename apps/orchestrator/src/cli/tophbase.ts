@@ -32,6 +32,7 @@ interface LocalConfig {
   port: number;
   migrationsDir: string;
   pgWirePort?: number;
+  functionsDir?: string;
 }
 
 async function readLocalConfig(): Promise<Partial<LocalConfig>> {
@@ -125,8 +126,24 @@ async function cmdFreshman(args: string[]) {
     rl.close();
   }
 
-  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort) {
-    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }) });
+  // ── Edge functions (optional) ─────────────────────────────────────────────
+  const flagFunctionsDir = argValue(args, '--functions-dir');
+  let functionsDir: string | undefined;
+
+  if (flagFunctionsDir) {
+    functionsDir = path.resolve(flagFunctionsDir);
+  } else if (saved.functionsDir) {
+    functionsDir = saved.functionsDir;
+  } else {
+    const suggested = path.resolve('./supabase/functions');
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, `  Edge functions dir [${suggested}]: `);
+    rl.close();
+    functionsDir = answer.trim() ? path.resolve(answer.trim()) : suggested;
+  }
+
+  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort || flagFunctionsDir || (!saved.functionsDir && functionsDir !== undefined)) {
+    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }), ...(functionsDir !== undefined && { functionsDir }) });
     if (isFirstRun) console.log(`  Config saved to ${LOCAL_CONFIG_FILE}`);
   }
 
@@ -135,6 +152,7 @@ async function cmdFreshman(args: string[]) {
   console.log(`  Port:           ${port}`);
   console.log(`  Migrations dir: ${migrationsDir}`);
   if (pgWirePort !== undefined) console.log(`  PG wire port:   ${pgWirePort}`);
+  if (functionsDir !== undefined) console.log(`  Functions dir:  ${functionsDir}`);
   console.log('');
 
   process.env.TOPHBASE_DATA_DIR = dataDir;
@@ -142,6 +160,7 @@ async function cmdFreshman(args: string[]) {
   process.env.TOPHBASE_PORT = String(port);
   process.env.TOPHBASE_MIGRATIONS_DIR = migrationsDir;
   if (pgWirePort !== undefined) process.env.TOPHBASE_PG_PORT = String(pgWirePort);
+  if (functionsDir !== undefined) process.env.TOPHBASE_FUNCTIONS_DIR = functionsDir;
 
   const { start } = await import('../server.js');
   await start();
@@ -206,7 +225,8 @@ function printHelp() {
                Flags (override saved config):
                  --port <port>
                  --migrations-dir <path>
-                 --pg-wire-port <port>   Enable Postgres wire protocol on this port (required if enabling)
+                 --pg-wire-port <port>    Enable Postgres wire protocol on this port (required if enabling)
+                 --functions-dir <path>   Directory containing edge functions (default: ./supabase/functions)
 
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema
