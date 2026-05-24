@@ -317,6 +317,30 @@ CREATE TABLE IF NOT EXISTS storage.objects (
 );
 
 CREATE INDEX IF NOT EXISTS objects_bucket_id_name_idx ON storage.objects (bucket_id, name);
+
+CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _parts text[];
+BEGIN
+  SELECT string_to_array(name, '/') INTO _parts;
+  RETURN _parts[1:array_length(_parts, 1) - 1];
+END $$;
+
+CREATE OR REPLACE FUNCTION storage.filename(name text) RETURNS text
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _parts text[];
+BEGIN
+  SELECT string_to_array(name, '/') INTO _parts;
+  RETURN _parts[array_length(_parts, 1)];
+END $$;
+
+CREATE OR REPLACE FUNCTION storage.extension(name text) RETURNS text
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _filename text;
+BEGIN
+  SELECT storage.filename(name) INTO _filename;
+  RETURN reverse(split_part(reverse(_filename), '.', 1));
+END $$;
 `;
 
 export async function runBootstrapMigrations(store: PGliteStore): Promise<void> {
