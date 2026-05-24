@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { Dialect } from '../../lib/project-config.js';
 import { saveProjectConfig, loadOrCreateProjectConfig } from '../../lib/project-config.js';
 
@@ -14,12 +16,42 @@ export interface TophbaseStatus {
   url: string;
   publishableKey: string;
   secretKey: string;
+  functionsDir: string | null;
+}
+
+export interface EdgeFunction {
+  name: string;
+  url: string;
+}
+
+async function listFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
+  const results: EdgeFunction[] = [];
+  try {
+    const entries = await fs.readdir(functionsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Check for index file
+        const candidates = ['index.ts', 'index.tsx', 'index.js'];
+        for (const c of candidates) {
+          try {
+            await fs.access(path.join(functionsDir, entry.name, c));
+            results.push({ name: entry.name, url: `${baseUrl}/functions/v1/${entry.name}` });
+            break;
+          } catch { /* try next */ }
+        }
+      } else if (/\.(ts|tsx|js)$/.test(entry.name) && !entry.name.startsWith('_')) {
+        const name = entry.name.replace(/\.(ts|tsx|js)$/, '');
+        results.push({ name, url: `${baseUrl}/functions/v1/${name}` });
+      }
+    }
+  } catch { /* dir doesn't exist yet */ }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Reply: TophbaseStatus }>('/tophbase/status', async (_req, reply) => {
     reply.header('Cache-Control', 'no-store');
-    const { project, server } = fastify.config;
+    const { project, server, functions } = fastify.config;
     reply.send({
       configured: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect != null,
       dialect: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect ?? null,
@@ -27,7 +59,37 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       url: `http://localhost:${server.port}`,
       publishableKey: project.publishableKey,
       secretKey: project.secretKey,
+      functionsDir: functions.dir,
     });
+  });
+
+  fastify.get('/tophbase/functions', async (_req, reply) => {
+    const { functions, server } = fastify.config;
+    const baseUrl = `http://localhost:${server.port}`;
+    const fns = functions.dir ? await listFunctions(functions.dir, baseUrl) : [];
+    reply.send({ functionsDir: functions.dir, functions: fns });
+  });
+
+  fastify.get<{ Params: { name: string } }>('/tophbase/functions/:name', async (request, reply) => {
+    const { functions } = fastify.config;
+    if (!functions.dir) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Functions not configured' } });
+    }
+    const { name } = request.params;
+    const candidates = [
+      path.join(functions.dir, name, 'index.ts'),
+      path.join(functions.dir, name, 'index.tsx'),
+      path.join(functions.dir, name, 'index.js'),
+      path.join(functions.dir, name + '.ts'),
+      path.join(functions.dir, name + '.js'),
+    ];
+    for (const filePath of candidates) {
+      try {
+        const source = await fs.readFile(filePath, 'utf8');
+        return reply.send({ name, source, path: filePath });
+      } catch { /* try next */ }
+    }
+    return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Function '${name}' not found` } });
   });
 
   fastify.post('/tophbase/setup', async (request, reply) => {

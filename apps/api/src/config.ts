@@ -23,6 +23,7 @@ export interface Config {
   rateLimit: { auth: number; api: number };
   features: { requireAuthForApi: boolean };
   storage: { maxFileSizeBytes: number };
+  functions: { dir: string | null };
 }
 
 function defaultDataDir(name: string): string {
@@ -57,6 +58,9 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
     features: { requireAuthForApi: env.REQUIRE_AUTH_FOR_API === 'true' },
     storage: {
       maxFileSizeBytes: Number(env.STORAGE_MAX_FILE_SIZE_BYTES ?? 52_428_800), // 50 MB
+    },
+    functions: {
+      dir: env.TOPHBASE_FUNCTIONS_DIR ?? null,
     },
   };
 }

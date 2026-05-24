@@ -13,6 +13,7 @@ import {
   BookOpen,
   GitBranch,
   HardDrive,
+  Zap,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/sql', icon: Terminal, label: 'SQL Editor' },
   { to: '/migrations', icon: GitBranch, label: 'Migrations' },
   { to: '/storage', icon: HardDrive, label: 'Storage' },
+  { to: '/functions', icon: Zap, label: 'Functions' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/policies', icon: Shield, label: 'Policies' },
 ];
