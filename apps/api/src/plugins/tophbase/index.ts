@@ -48,6 +48,12 @@ async function listFunctions(functionsDir: string, baseUrl: string): Promise<Edg
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function resolvePublicUrl(port: number): string {
+  if (process.env.TOPHBASE_PUBLIC_URL) return process.env.TOPHBASE_PUBLIC_URL;
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  return `http://localhost:${port}`;
+}
+
 const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Reply: TophbaseStatus }>('/tophbase/status', async (_req, reply) => {
     reply.header('Cache-Control', 'no-store');
@@ -56,7 +62,7 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       configured: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect != null,
       dialect: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect ?? null,
       version: '0.1.0',
-      url: `http://localhost:${server.port}`,
+      url: resolvePublicUrl(server.port),
       publishableKey: project.publishableKey,
       secretKey: project.secretKey,
       functionsDir: functions.dir,
@@ -65,7 +71,7 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/tophbase/functions', async (_req, reply) => {
     const { functions, server } = fastify.config;
-    const baseUrl = `http://localhost:${server.port}`;
+    const baseUrl = resolvePublicUrl(server.port);
     const fns = functions.dir ? await listFunctions(functions.dir, baseUrl) : [];
     reply.send({ functionsDir: functions.dir, functions: fns });
   });
