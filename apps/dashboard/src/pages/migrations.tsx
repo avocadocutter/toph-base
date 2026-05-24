@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ColumnDef } from '@tanstack/react-table';
-import { Plus, Play, Trash2, Download, RotateCcw, Upload } from 'lucide-react';
+import { Plus, Play, Trash2, Download, RotateCcw, Upload, Eye } from 'lucide-react';
 import { DataTable } from '../components/data-table/data-table';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -17,7 +17,7 @@ import {
 } from '../components/ui/dialog';
 import { api, projectAdminPath } from '../lib/api-client';
 import { toast } from 'sonner';
-import type { Migration, MigrationListResponse, ApplyMigrationsResponse } from '../types';
+import type { Migration, MigrationListResponse, MigrationDetail, ApplyMigrationsResponse } from '../types';
 
 type CollisionInfo = { name: string; status: string };
 
@@ -30,6 +30,7 @@ export function MigrationsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedMigrations, setSelectedMigrations] = useState<Set<string>>(new Set());
+  const [viewingMigration, setViewingMigration] = useState<string | null>(null);
   const [uploadDialog, setUploadDialog] = useState<UploadDialogState>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,6 +39,13 @@ export function MigrationsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-migrations'],
     queryFn: () => api.get<MigrationListResponse>(projectAdminPath('/migrations')),
+  });
+
+  // Fetch migration detail for view dialog
+  const { data: migrationDetail } = useQuery({
+    queryKey: ['admin-migration-detail', viewingMigration],
+    queryFn: () => api.get<MigrationDetail>(projectAdminPath(`/migrations/${viewingMigration}`)),
+    enabled: viewingMigration !== null,
   });
 
   // Apply selected mutations
@@ -240,6 +248,14 @@ export function MigrationsPage() {
       header: '',
       cell: ({ row }) => (
         <div className="flex items-center gap-2 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            title="View migration"
+            onClick={() => setViewingMigration(row.original.name)}
+          >
+            <Eye size={14} />
+          </Button>
           {row.original.status === 'failed' && (
             <Button
               variant="ghost"
@@ -327,6 +343,21 @@ export function MigrationsPage() {
       )}
 
       <DataTable columns={columns} data={data?.data || []} loading={isLoading} />
+
+      {/* View migration SQL */}
+      <Dialog open={viewingMigration !== null} onOpenChange={() => setViewingMigration(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">{viewingMigration}</DialogTitle>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-y-auto rounded border bg-muted/40 p-4 text-xs font-mono whitespace-pre-wrap break-all">
+            {migrationDetail?.content ?? 'Loading…'}
+          </pre>
+          <DialogFooter>
+            <Button onClick={() => setViewingMigration(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Applied collision — hard block */}
       <Dialog open={uploadDialog?.type === 'applied'} onOpenChange={() => setUploadDialog(null)}>
