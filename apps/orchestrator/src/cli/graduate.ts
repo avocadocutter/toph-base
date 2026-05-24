@@ -28,6 +28,11 @@ export async function cmdGraduate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  if (provider === 'railway') {
+    await cmdGraduateRailway();
+    return;
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log(`\nGraduating to ${provider}.`);
   console.log(`Where to find your connection string: ${PROVIDER_HINTS[provider]}\n`);
@@ -82,6 +87,244 @@ export async function cmdGraduate(args: string[]): Promise<void> {
 
   console.log('\nGraduation complete!');
 }
+
+// ── Railway deploy ────────────────────────────────────────────────────────────
+
+async function cmdGraduateRailway(): Promise<void> {
+  const { execSync, spawnSync } = await import('node:child_process');
+  const fs = (await import('node:fs/promises')).default;
+  const { fileURLToPath } = await import('node:url');
+
+  // 1. Check railway CLI
+  try {
+    execSync('which railway', { stdio: 'pipe' });
+  } catch {
+    console.error('\n  railway CLI not found. Install it:');
+    console.error('    npm install -g @railway/cli\n');
+    process.exit(1);
+  }
+
+  // 2. Check login
+  const whoami = spawnSync('railway', ['whoami'], { encoding: 'utf8', shell: true });
+  if (whoami.status !== 0) {
+    console.error('\n  Not logged in to Railway.');
+    console.error('  Run: railway login');
+    console.error('  Then re-run: tophbase graduate --provider railway\n');
+    process.exit(1);
+  } else {
+    const user = whoami.stdout.trim();
+    if (user) console.log(`\n  Railway: ${user}`);
+  }
+
+  // 3. Project name
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const defaultName = `${path.basename(process.cwd())}-tophbase`;
+  const projectName = (await rl.question(`  Project name [${defaultName}]: `)).trim() || defaultName;
+  rl.close();
+
+  // 4. Staging dir — this is what gets deployed to Railway
+  const stageDir = path.resolve('.tophbase', 'railway');
+  await fs.mkdir(stageDir, { recursive: true });
+
+  // 5. Pack both tophbase packages using pnpm (which resolves workspace: refs to real versions)
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const pkgRoot = path.resolve(__dirname, '../..');
+  const apiRoot = path.resolve(pkgRoot, '../api');
+
+  // Read versions to construct exact tarball filenames
+  const orchPkg = JSON.parse(await fs.readFile(path.join(pkgRoot, 'package.json'), 'utf8')) as { version: string };
+  const apiPkg  = JSON.parse(await fs.readFile(path.join(apiRoot, 'package.json'), 'utf8')) as { version: string };
+  const orchTarball = `tophbase-${orchPkg.version}.tgz`;
+  const apiTarball  = `tophbase-api-${apiPkg.version}.tgz`;
+
+  console.log('\nPacking tophbase...');
+  for (const [root, label] of [[apiRoot, '@tophbase/api'], [pkgRoot, 'tophbase']] as [string, string][]) {
+    const r = spawnSync('pnpm', ['pack', '--pack-destination', stageDir], { encoding: 'utf8', shell: true, cwd: root });
+    if (r.status !== 0) {
+      console.error(`Failed to pack ${label}:`, r.stderr);
+      process.exit(1);
+    }
+  }
+
+  // 6. Write Dockerfile + startup script.
+  //    The pnpm override redirects @tophbase/api to the local tarball so pnpm never
+  //    hits the registry for it. Volume is mounted at /app/.tophbase, which is exactly
+  //    where freshman writes data (path.resolve('.tophbase') from /app).
+  //    start.sh pre-writes config.json so freshman skips all interactive prompts except
+  //    pg-wire (no flag/config to disable it), which is handled by piping a newline.
+  const stagePkg = {
+    name: 'tophbase-service',
+    version: '1.0.0',
+    type: 'module',
+    pnpm: { overrides: { '@tophbase/api': `file:./${apiTarball}` } },
+  };
+
+  await fs.writeFile(
+    path.join(stageDir, 'start.sh'),
+    [
+      '#!/bin/sh',
+      'mkdir -p /app/.tophbase',
+      // Pre-write config so freshman reads saved values and skips port/migrations/functions prompts
+      `printf '{"port":%s,"migrationsDir":"/app/migrations","functionsDir":"/app/supabase/functions"}' "$PORT" > /app/.tophbase/config.json`,
+      // Pipe a single newline to answer the pg-wire prompt (empty = N = disabled)
+      `printf '\\n' | node_modules/.bin/tophbase freshman`,
+    ].join('\n') + '\n',
+    'utf8',
+  );
+
+  await fs.writeFile(
+    path.join(stageDir, 'Dockerfile'),
+    [
+      'FROM node:22-alpine',
+      'RUN npm install -g pnpm@10',
+      'WORKDIR /app',
+      `COPY ${apiTarball} ${orchTarball} start.sh ./`,
+      `RUN echo '${JSON.stringify(stagePkg)}' > package.json`,
+      `RUN pnpm add ./${apiTarball} ./${orchTarball}`,
+      'RUN chmod +x start.sh',
+      'ENV TOPHBASE_HOST=0.0.0.0',
+      'CMD ["/app/start.sh"]',
+    ].join('\n') + '\n',
+    'utf8',
+  );
+
+  // Remove stale nixpacks files if present from a previous attempt
+  for (const f of ['package.json', 'railway.json']) {
+    await fs.unlink(path.join(stageDir, f)).catch(() => {});
+  }
+
+  // 7. Carry over local keys so production uses the same API keys as local dev
+  const localKeys = await readLocalKeys();
+
+  // 8. Create Railway project, or link if it already exists
+  const listOut = spawnSync('railway', ['list', '--json'], { encoding: 'utf8', shell: true, cwd: stageDir });
+  let existingId: string | undefined;
+  if (listOut.status === 0) {
+    try {
+      const projects = JSON.parse(listOut.stdout) as { name: string; id: string }[];
+      existingId = projects.find(p => p.name === projectName)?.id;
+    } catch { /* ignore */ }
+  }
+
+  if (existingId) {
+    console.log(`\nProject '${projectName}' already exists, linking...`);
+    const link = spawnSync('railway', ['link', '--project', existingId], { stdio: 'inherit', shell: true, cwd: stageDir });
+    if (link.status !== 0) {
+      console.error('Failed to link Railway project.');
+      process.exit(1);
+    }
+  } else {
+    console.log('\nCreating Railway project...');
+    const init = spawnSync('railway', ['init', '--name', projectName], {
+      stdio: 'inherit',
+      shell: true,
+      cwd: stageDir,
+    });
+    if (init.status !== 0) {
+      console.error('Failed to create Railway project.');
+      process.exit(1);
+    }
+  }
+
+  // 9. Create service with variables if it doesn't already exist
+  const svcList = spawnSync('railway', ['service', 'list', '--json'], {
+    encoding: 'utf8',
+    shell: true,
+    cwd: stageDir,
+  });
+  let serviceExists = false;
+  if (svcList.status === 0) {
+    try {
+      const services = JSON.parse(svcList.stdout) as { name: string }[];
+      serviceExists = services.some(s => s.name === projectName);
+    } catch { /* ignore */ }
+  }
+
+  if (!serviceExists) {
+    const varFlags: string[] = [
+      '--variables', 'TOPHBASE_HOST=0.0.0.0',
+      '--variables', `TOPHBASE_PROJECT=${projectName}`,
+    ];
+    if (localKeys) {
+      varFlags.push('--variables', `TOPHBASE_JWT_SECRET=${localKeys.jwtSecret}`);
+      varFlags.push('--variables', `TOPHBASE_PUBLISHABLE_KEY=${localKeys.publishableKey}`);
+      varFlags.push('--variables', `TOPHBASE_SECRET_KEY=${localKeys.secretKey}`);
+    }
+    console.log('\nCreating service...');
+    const addService = spawnSync('railway', ['add', '--service', projectName, ...varFlags], {
+      stdio: 'inherit',
+      shell: true,
+      cwd: stageDir,
+    });
+    if (addService.status !== 0) {
+      console.error('Failed to create Railway service.');
+      process.exit(1);
+    }
+  } else {
+    console.log(`\nService '${projectName}' already exists, skipping.`);
+  }
+
+  // 10. Add persistent volume — mounted at /app/.tophbase so freshman's path.resolve('.tophbase') lands on it
+  console.log('\nAdding persistent volume at /app/.tophbase...');
+  spawnSync('railway', ['volume', 'add', '--mount-path', '/app/.tophbase'], {
+    stdio: 'inherit',
+    shell: true,
+    cwd: stageDir,
+  });
+
+  // 11. Deploy
+  console.log('\nDeploying...');
+  const up = spawnSync('railway', ['up', '--detach'], {
+    stdio: 'inherit',
+    shell: true,
+    cwd: stageDir,
+  });
+  if (up.status !== 0) {
+    console.error('Deployment failed.');
+    process.exit(1);
+  }
+
+  // 12. Generate public domain
+  console.log('\nGenerating public domain...');
+  const domainOut = spawnSync('railway', ['domain', '--json'], {
+    encoding: 'utf8',
+    shell: true,
+    cwd: stageDir,
+  });
+  let railwayUrl = '';
+  if (domainOut.status === 0) {
+    try {
+      const d = JSON.parse(domainOut.stdout) as { domain?: string };
+      if (d.domain) railwayUrl = `https://${d.domain}`;
+    } catch { /* ignore */ }
+  }
+
+  console.log('\n  Graduation complete!');
+  if (railwayUrl) {
+    console.log(`  URL: ${railwayUrl}`);
+  }
+  if (localKeys) {
+    console.log(`\n  Publishable key: ${localKeys.publishableKey}`);
+    console.log(`  Secret key:      ${localKeys.secretKey}`);
+  } else {
+    console.log('\n  Keys auto-generated on first start — check Railway logs for your publishable/secret keys.');
+  }
+  console.log('');
+}
+
+async function readLocalKeys(): Promise<{ jwtSecret: string; publishableKey: string; secretKey: string } | null> {
+  try {
+    const fs = (await import('node:fs/promises')).default;
+    const configPath = path.resolve('.tophbase', 'data', 'config.json');
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    if (raw.jwtSecret && raw.publishableKey && raw.secretKey) {
+      return raw as { jwtSecret: string; publishableKey: string; secretKey: string };
+    }
+  } catch { /* no local keys yet */ }
+  return null;
+}
+
+// ── Data export (non-Railway providers) ──────────────────────────────────────
 
 interface ExportResult {
   ddl: string[];
