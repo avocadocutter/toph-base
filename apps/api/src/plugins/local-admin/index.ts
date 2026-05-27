@@ -544,6 +544,50 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     if (result.rows.length === 0) throw new NotFoundError('User not found');
     return { message: 'User deleted' };
   });
+
+  // ── DB Reset ─────────────────────────────────────────────────────────────
+
+  fastify.post('/admin/db/reset', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest) => {
+    const projectDb = request.projectDb!;
+    const body = request.body as { includeAuth?: boolean };
+
+    // Drop all user tables in the public schema
+    const { rows: tables } = await projectDb.query<{ tablename: string }>(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`,
+    );
+
+    for (const { tablename } of tables) {
+      await projectDb.exec(`DROP TABLE IF EXISTS public.${quoteIdentifier(tablename)} CASCADE`);
+    }
+
+    // Drop all views in the public schema
+    const { rows: views } = await projectDb.query<{ viewname: string }>(
+      `SELECT viewname FROM pg_views WHERE schemaname = 'public'`,
+    );
+    for (const { viewname } of views) {
+      await projectDb.exec(`DROP VIEW IF EXISTS public.${quoteIdentifier(viewname)} CASCADE`);
+    }
+
+    // Reset migration tracking
+    try {
+      await projectDb.query(`DELETE FROM auth._local_migrations`);
+    } catch {
+      // Table may not exist yet — ignore
+    }
+
+    if (body.includeAuth) {
+      await projectDb.query(`DELETE FROM auth.sessions`);
+      await projectDb.query(`DELETE FROM auth.users`);
+    }
+
+    invalidateCache('local');
+
+    return {
+      message: 'Database reset successfully',
+      droppedTables: tables.map(t => t.tablename),
+      authCleared: body.includeAuth ?? false,
+    };
+  });
 };
 
 export default localAdminPlugin;
