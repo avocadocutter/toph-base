@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError } from '../../lib/errors.js';
+import { invalidateCache } from '../introspection/inspector.js';
 
 const createBranchSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]{0,49}$/, 'Branch name must be lowercase alphanumeric with hyphens'),
@@ -37,6 +38,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
     } catch (err) {
       throw new NotFoundError((err as Error).message);
     }
+    invalidateCache('*');
     return { activeBranch: name };
   });
 
@@ -57,6 +59,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
     } catch (err) {
       throw new BadRequestError((err as Error).message);
     }
+    invalidateCache('*');
     return { reset: name };
   });
 
@@ -82,6 +85,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
     } catch (err) {
       throw new BadRequestError(`Merge failed: ${(err as Error).message}`);
     }
+    invalidateCache('*');
     return { merged: name, applied: body.apply.length };
   });
 };
