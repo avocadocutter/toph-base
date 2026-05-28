@@ -40,6 +40,7 @@ export interface ParsedOrder {
 
 export interface RelationSpec {
   name: string;
+  alias: string | null;     // null = use table name as key
   columns: string[] | null; // null = all columns (*)
 }
 
@@ -102,8 +103,8 @@ function parseOrItem(expr: string): ParsedFilter {
   return parseOneFilter(expr.slice(0, firstDot), expr.slice(firstDot + 1));
 }
 
-// Matches "relation_name(columns)" in a select token.
-const EMBED_RE = /^(\w+)\((.*)\)$/;
+// Matches "relation_name(columns)" or "alias:relation_name(columns)" in a select token.
+const EMBED_RE = /^(?:(\w+):)?(\w+)\((.*)\)$/;
 
 export function parseQueryParams(querystring: Record<string, string | undefined>): ParsedQuery {
   const parsed: ParsedQuery = {
@@ -125,9 +126,12 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     for (const token of splitAtDepth0(querystring.select)) {
       const m = token.match(EMBED_RE);
       if (m) {
-        const relCols = m[2].trim();
+        const alias = m[1] ?? null;
+        const name  = m[2];
+        const relCols = m[3].trim();
         parsed.relations.push({
-          name: m[1],
+          name,
+          alias,
           columns: !relCols || relCols === '*'
             ? null
             : relCols.split(',').map(s => s.trim()).filter(Boolean),

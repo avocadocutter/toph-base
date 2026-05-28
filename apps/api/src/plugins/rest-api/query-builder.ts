@@ -185,8 +185,9 @@ function buildRelationSubquery(
     ? rel.columns.map(c => quoteIdentifier(c)).join(', ')
     : '*';
 
-  const quotedRel  = quoteIdentifier(rel.name);
-  const quotedMain = quoteIdentifier(table.name);
+  const quotedRel    = quoteIdentifier(rel.name);
+  const quotedAlias  = quoteIdentifier(rel.alias ?? rel.name);
+  const quotedMain   = quoteIdentifier(table.name);
 
   // Many-to-one: current table has FK → related table (e.g. posts.user_id → users.id)
   const manyToOne = table.foreignKeys.find(fk => fk.foreignTable === rel.name);
@@ -196,7 +197,7 @@ function buildRelationSubquery(
     return (
       `(SELECT row_to_json(r) FROM ` +
       `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${foreignCol} = ${quotedMain}.${localCol} LIMIT 1) r) ` +
-      `AS ${quotedRel}`
+      `AS ${quotedAlias}`
     );
   }
 
@@ -208,7 +209,7 @@ function buildRelationSubquery(
     return (
       `COALESCE((SELECT json_agg(row_to_json(r)) FROM ` +
       `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${relCol} = ${quotedMain}.${localCol}) r), '[]'::json) ` +
-      `AS ${quotedRel}`
+      `AS ${quotedAlias}`
     );
   }
 

@@ -40,25 +40,10 @@ export type RestHook = (request: FastifyRequest, reply: FastifyReply) => Promise
  */
 export interface RestApiPluginOptions {
   /**
-   * Resolves project + auth from the `apikey` request header.
-   * Used by Supabase-compatible routes (`/rest/v1/:table`).
-   * Must set `request.project`, `request.projectDb`, and `request.jwtPayload`.
+   * Single hook that resolves the project and authenticates the user.
+   * Must set `request.project`, `request.projectDb`, and optionally `request.jwtPayload`.
    */
-  resolveFromApikey: RestHook;
-
-  /**
-   * Resolves project from URL params (`/project/:projectRef/...`) or
-   * the request subdomain. Used by project-scoped admin routes.
-   * Must set `request.project` and `request.projectDb`.
-   */
-  resolveProject: RestHook;
-
-  /**
-   * Authenticates the request user via Bearer JWT.
-   * Runs after `resolveProject` on project-scoped routes.
-   * Must set `request.jwtPayload` on success.
-   */
-  authHook: RestHook;
+  resolveRequest: RestHook;
 }
 
 // ── Prefer header parsing ─────────────────────────────────────────────────────
@@ -283,6 +268,16 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
   const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues);
 
   if (prefer.return === 'minimal') return reply.status(204).send();
+
+  // Unwrap scalar return: if the result is a single row with a single column named
+  // after the function, return the bare value — matching PostgREST behaviour.
+  if (result.rows.length === 1) {
+    const keys = Object.keys(result.rows[0]);
+    if (keys.length === 1 && keys[0] === fnName) {
+      return reply.header('Content-Type', 'application/json').send(JSON.stringify(result.rows[0][fnName]));
+    }
+  }
+
   if (isSingularRequest(request)) return sendSingular(reply, result.rows, 200, prefer.missing === 'default');
   return reply.send(result.rows);
 }
@@ -290,13 +285,10 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
 // ── Plugin registration ───────────────────────────────────────────────────────
 
 const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, opts) => {
-  const { resolveFromApikey, resolveProject, authHook } = opts;
+  const { resolveRequest } = opts;
 
-  // Emit Supabase JS client-compatible flat error format so @supabase/postgrest-js can parse
-  // error.code / error.message / error.details / error.hint on every error response.
   fastify.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
-      // PGRST116 and similar errors pass { details, hint } as the AppError.details object
       const extra = error.details as { details?: unknown; hint?: unknown } | undefined;
       return reply.status(error.statusCode).send({
         code: error.code,
@@ -322,23 +314,17 @@ const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, 
     });
   });
 
-  // ── Supabase-compatible routes ───────────────────────────────────────────
-  // Auth and project are resolved from the `apikey` request header.
-  // The Supabase JS client hits these: {project-ref}.host/rest/v1/{table}
-  fastify.get('/rest/v1/:table',         { preHandler: [resolveFromApikey] }, handleGet);
-  fastify.post('/rest/v1/:table',        { preHandler: [resolveFromApikey] }, handlePost);
-  fastify.patch('/rest/v1/:table',       { preHandler: [resolveFromApikey] }, handlePatch);
-  fastify.delete('/rest/v1/:table',      { preHandler: [resolveFromApikey] }, handleDelete);
-  fastify.post('/rest/v1/rpc/:fn',       { preHandler: [resolveFromApikey] }, handleRpc);
+  fastify.get('/rest/v1/:table',         { preHandler: [resolveRequest] }, handleGet);
+  fastify.post('/rest/v1/:table',        { preHandler: [resolveRequest] }, handlePost);
+  fastify.patch('/rest/v1/:table',       { preHandler: [resolveRequest] }, handlePatch);
+  fastify.delete('/rest/v1/:table',      { preHandler: [resolveRequest] }, handleDelete);
+  fastify.post('/rest/v1/rpc/:fn',       { preHandler: [resolveRequest] }, handleRpc);
 
-  // ── Project-scoped routes ────────────────────────────────────────────────
-  // Project resolved from URL param; auth via Bearer JWT.
-  // Useful for server-side access and admin tooling.
-  fastify.get('/project/:projectRef/rest/v1/:table',      { preHandler: [resolveProject, authHook] }, handleGet);
-  fastify.post('/project/:projectRef/rest/v1/:table',     { preHandler: [resolveProject, authHook] }, handlePost);
-  fastify.patch('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveProject, authHook] }, handlePatch);
-  fastify.delete('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveProject, authHook] }, handleDelete);
-  fastify.post('/project/:projectRef/rest/v1/rpc/:fn',    { preHandler: [resolveProject, authHook] }, handleRpc);
+  fastify.get('/project/:projectRef/rest/v1/:table',      { preHandler: [resolveRequest] }, handleGet);
+  fastify.post('/project/:projectRef/rest/v1/:table',     { preHandler: [resolveRequest] }, handlePost);
+  fastify.patch('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveRequest] }, handlePatch);
+  fastify.delete('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveRequest] }, handleDelete);
+  fastify.post('/project/:projectRef/rest/v1/rpc/:fn',    { preHandler: [resolveRequest] }, handleRpc);
 };
 
 export default restApiPlugin;

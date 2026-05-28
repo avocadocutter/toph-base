@@ -179,9 +179,7 @@ export async function createServer(): Promise<ServerContext> {
   await fastify.register(introspectionPlugin);
   await fastify.register(authPlugin);
   await fastify.register(restApiPlugin, {
-    resolveFromApikey: resolveLocalProject,
-    resolveProject: resolveLocalProject,
-    authHook: config.features.requireAuthForApi ? authenticateProject : authenticateProjectOptional,
+    resolveRequest: resolveLocalProject,
   });
   await fastify.register(rlsPlugin);
 
