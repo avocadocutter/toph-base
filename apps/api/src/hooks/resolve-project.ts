@@ -8,6 +8,6 @@ export async function resolveLocalProject(request: FastifyRequest, _reply: Fasti
     ref: project.name,
     jwtSecret: project.jwtSecret,
   };
-  // In single-project mode, fastify.db IS the project database.
-  request.projectDb = request.server.db;
+  // Use the active branch's store so all queries hit the right database.
+  request.projectDb = request.server.branchManager.getActiveStore();
 }

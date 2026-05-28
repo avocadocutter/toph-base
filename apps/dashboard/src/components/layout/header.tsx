@@ -1,5 +1,6 @@
 import { useUiStore } from '@/stores/ui-store';
 import { Button } from '@/components/ui/button';
+import { BranchSelector } from '@/components/branches/branch-selector';
 import { Sun, Moon, Monitor } from 'lucide-react';
 
 const themeIcon = {
@@ -23,7 +24,8 @@ export function Header() {
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-6">
       <div />
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        <BranchSelector />
         <Button
           variant="ghost"
           size="sm"

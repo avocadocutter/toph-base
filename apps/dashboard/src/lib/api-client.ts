@@ -86,6 +86,46 @@ export async function storageRequest<T>(
   return response.json();
 }
 
+// ── Branches API ────────────────────────────────────────────────────────────
+
+export interface BranchInfo {
+  name: string;
+  createdAt: string;
+  parentBranch: string | null;
+}
+
+export interface BranchesResponse {
+  activeBranch: string;
+  branches: BranchInfo[];
+}
+
+export interface DiffAddition {
+  type: 'table' | 'column' | 'index';
+  description: string;
+  sql: string;
+}
+
+export interface DiffWarning {
+  type: 'dropped_table' | 'dropped_column' | 'type_change';
+  description: string;
+}
+
+export interface SchemaDiff {
+  additions: DiffAddition[];
+  warnings: DiffWarning[];
+}
+
+export const branchesApi = {
+  list: () => api.get<BranchesResponse>('/admin/branches'),
+  create: (name: string) => api.post<BranchInfo>('/admin/branches', { name }),
+  switch: (name: string) => api.post<{ activeBranch: string }>(`/admin/branches/${name}/switch`),
+  delete: (name: string) => api.delete<{ deleted: string }>(`/admin/branches/${name}`),
+  reset: (name: string) => api.post<{ reset: string }>(`/admin/branches/${name}/reset`),
+  diff: (name: string) => api.get<SchemaDiff>(`/admin/branches/${name}/diff`),
+  merge: (name: string, apply: string[]) =>
+    api.post<{ merged: string; applied: number }>(`/admin/branches/${name}/merge`, { apply }),
+};
+
 export async function storageSignedDownloadUrl(bucket: string, path: string): Promise<string> {
   const res = await storageRequest<{ signedURL: string }>(
     `/object/sign/${encodeURIComponent(bucket)}/${path}`,

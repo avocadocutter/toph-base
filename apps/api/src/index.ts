@@ -1,5 +1,7 @@
 export { createServer } from './server.js';
 export type { ServerContext } from './server.js';
+export { BranchManager } from './db/branch-manager.js';
+export type { BranchInfo, SchemaDiff } from './db/branch-manager.js';
 export { PGliteStore } from './db/pglite-store.js';
 export type { DbPool } from './db/pglite-store.js';
 export { buildConfig } from './config.js';
