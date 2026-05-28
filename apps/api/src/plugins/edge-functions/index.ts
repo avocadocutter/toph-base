@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFile, readFile, access } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 
@@ -138,10 +138,11 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
     // Otherwise fall back to the runner script which overrides Deno.serve.
     const useImportMap = stdUrls.length > 0;
     const denoArgs = useImportMap
-      ? ['run', '--allow-all', `--import-map=${importMapPath}`, funcPath]
-      : ['run', '--allow-all', runnerPath, funcPath, String(port)];
+      ? ['run', '--allow-all', '--node-modules-dir=none', `--import-map=${importMapPath}`, funcPath]
+      : ['run', '--allow-all', '--node-modules-dir=none', runnerPath, funcPath, String(port)];
 
     const proc = spawn('deno', denoArgs, {
+      cwd: dirname(funcPath),
       env: {
         ...process.env,
         TOPHBASE_PORT: String(port),
