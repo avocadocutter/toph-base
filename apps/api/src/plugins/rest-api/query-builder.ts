@@ -33,49 +33,51 @@ function buildFilterExpr(
   filter: ParsedFilter,
   paramIndex: number,
   values: unknown[],
+  coercedValue?: unknown,
 ): { expr: string; consumed: number } {
   const col = quoteIdentifier(filter.column);
+  const paramValue = coercedValue !== undefined ? coercedValue : filter.value;
   let expr: string;
   let consumed = 0;
 
   switch (filter.operator) {
     case 'eq':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} = $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'neq':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} != $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'gt':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} > $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'gte':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} >= $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'lt':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} < $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'lte':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} <= $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'like':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} LIKE $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'ilike':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} ILIKE $${paramIndex + 1}`;
       consumed = 1;
       break;
@@ -102,6 +104,17 @@ function buildFilterExpr(
   return { expr, consumed };
 }
 
+function coerceFilterValue(rawValue: string, table: TableInfo, columnName: string): unknown {
+  const col = table.columns.find(c => c.name === columnName);
+  if (!col) return rawValue;
+  const dt = (col.dataType || col.udtName || '').toLowerCase();
+  if (dt === 'boolean') {
+    if (rawValue === 'true') return true;
+    if (rawValue === 'false') return false;
+  }
+  return rawValue;
+}
+
 function buildWhereClause(
   filters: ParsedFilter[],
   orFilters: ParsedFilter[],
@@ -115,7 +128,8 @@ function buildWhereClause(
   if (filters.length > 0) {
     validateColumns(filters.map(f => f.column), table);
     for (const filter of filters) {
-      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      const coerced = coerceFilterValue(filter.value, table, filter.column);
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values, coerced);
       andConditions.push(expr);
       paramIndex += consumed;
     }
@@ -125,7 +139,8 @@ function buildWhereClause(
   if (orFilters.length > 0) {
     validateColumns(orFilters.map(f => f.column), table);
     for (const filter of orFilters) {
-      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      const coerced = coerceFilterValue(filter.value, table, filter.column);
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values, coerced);
       orConditions.push(expr);
       paramIndex += consumed;
     }

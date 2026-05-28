@@ -171,7 +171,8 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
     });
 
     proc.stderr!.on('data', (chunk: Buffer) => {
-      fastify.log.warn(`[edge:${name}] ${chunk.toString().trimEnd()}`);
+      const msg = chunk.toString().trimEnd();
+      fastify.log.warn(`[edge:${name}] ${msg.length > 100 ? msg.slice(0, 100) + '…' : msg}`);
     });
 
     proc.on('exit', (code) => {
@@ -253,7 +254,9 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
       reply.header(k, v);
     });
 
-    return reply.send(Buffer.from(await res.arrayBuffer()));
+    const responseBody = Buffer.from(await res.arrayBuffer());
+    fastify.log.debug(`[edge:${name}] response ${res.status} body: ${responseBody.length > 100 ? responseBody.subarray(0, 100).toString() + '…' : responseBody.toString()}`);
+    return reply.send(responseBody);
   };
 
   fastify.all('/functions/v1/*', handler);

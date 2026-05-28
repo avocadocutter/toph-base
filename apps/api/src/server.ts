@@ -23,6 +23,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+function truncate(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = typeof value === 'string' ? value : JSON.stringify(value);
+  return s.length > 100 ? s.slice(0, 100) + '…' : s;
+}
+
 export interface ServerContext {
   fastify: FastifyInstance;
   config: Config;
@@ -64,6 +70,20 @@ export async function createServer(): Promise<ServerContext> {
       transport: process.env.NODE_ENV !== 'production'
         ? { target: 'pino-pretty', options: { colorize: true } }
         : undefined,
+      serializers: {
+        req(req) {
+          const body = (req as unknown as { body?: unknown }).body;
+          return { method: req.method, url: req.url, body: truncate(body) };
+        },
+        res(res) {
+          const body = (res as unknown as { body?: unknown }).body;
+          return { statusCode: res.statusCode, body: truncate(body) };
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        err(err: any) {
+          return { type: err?.constructor?.name, message: truncate(err?.message), stack: truncate(err?.stack) };
+        },
+      },
     },
   });
 
@@ -73,10 +93,22 @@ export async function createServer(): Promise<ServerContext> {
 
   (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect = projectConfig.dialect;
 
+  fastify.addHook('onRequest', (request, _reply, done) => {
+    if (
+      request.headers['content-type']?.includes('application/json') &&
+      (request.headers['content-length'] === '0' || request.headers['content-length'] === undefined) &&
+      ['DELETE', 'GET', 'HEAD'].includes(request.method.toUpperCase())
+    ) {
+      delete (request.headers as Record<string, unknown>)['content-type'];
+    }
+    done();
+  });
+
   await fastify.register(multipart, { limits: { fileSize: config.storage.maxFileSizeBytes } });
 
   await fastify.register(cors, {
     origin: config.cors.allowedOrigins === '*' ? true : config.cors.allowedOrigins.split(',').map(s => s.trim()),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: [
       'Content-Type',

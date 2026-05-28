@@ -163,6 +163,19 @@ async function cmdGraduateRailway(): Promise<void> {
     console.log(`\nNo migrations found at ${localMigrationsDir} — skipping`);
   }
 
+  const localFunctionsDir = typeof localConfig.functionsDir === 'string'
+    ? localConfig.functionsDir
+    : path.resolve('./supabase/functions');
+  const stageFunctionsDir = path.join(stageDir, 'functions');
+  let hasFunctions = false;
+  try {
+    await fs.cp(localFunctionsDir, stageFunctionsDir, { recursive: true });
+    hasFunctions = true;
+    console.log(`Copied functions from ${localFunctionsDir}`);
+  } catch {
+    console.log(`No functions found at ${localFunctionsDir} — skipping`);
+  }
+
   // 7. Write Dockerfile + startup script.
   //    The pnpm override redirects @tophbase/api to the local tarball so pnpm never
   //    hits the registry for it. Volume is mounted at /app/.tophbase, which is exactly
@@ -180,7 +193,7 @@ async function cmdGraduateRailway(): Promise<void> {
       '#!/bin/sh',
       // Pass flags directly so freshman skips port/migrations/functions prompts.
       // Pipe a single newline to answer the pg-wire prompt (empty = N = disabled).
-      `printf '\\n' | node_modules/.bin/tophbase freshman --port "$PORT" --migrations-dir /app/migrations --functions-dir /app/supabase/functions`,
+      `printf '\\n' | node_modules/.bin/tophbase freshman --port "$PORT" --migrations-dir /app/migrations${hasFunctions ? ' --functions-dir /app/functions' : ''}`,
     ].join('\n') + '\n',
     'utf8',
   );
@@ -188,11 +201,14 @@ async function cmdGraduateRailway(): Promise<void> {
   await fs.writeFile(
     path.join(stageDir, 'Dockerfile'),
     [
-      'FROM node:22-alpine',
+      'FROM denoland/deno:bin AS deno',
+      'FROM node:22',
+      'COPY --from=deno /deno /usr/local/bin/deno',
       'RUN npm install -g pnpm@10',
       'WORKDIR /app',
       `COPY ${apiTarball} ${orchTarball} start.sh ./`,
       ...(hasMigrations ? ['COPY migrations ./migrations'] : []),
+      ...(hasFunctions ? ['COPY functions ./functions'] : []),
       `RUN echo '${JSON.stringify(stagePkg)}' > package.json`,
       `RUN pnpm add ./${apiTarball} ./${orchTarball}`,
       'RUN chmod +x start.sh',
