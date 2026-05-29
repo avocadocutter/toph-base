@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Eye, EyeOff } from 'lucide-react';
+import { Copy, Check, Eye, EyeOff, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -174,6 +174,99 @@ function ResetDangerZone() {
   );
 }
 
+function SecretsSection() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['tophbase-secrets'],
+    queryFn: () => api.get<{ secrets: Record<string, string> }>('/tophbase/secrets'),
+  });
+
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  const addMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      api.post('/tophbase/secrets', { key, value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tophbase-secrets'] });
+      setNewKey('');
+      setNewValue('');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (key: string) => api.delete(`/tophbase/secrets/${encodeURIComponent(key)}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tophbase-secrets'] }),
+  });
+
+  const entries = Object.entries(data?.secrets ?? {});
+
+  const handleAdd = () => {
+    if (!newKey.trim() || !newValue.trim()) return;
+    addMutation.mutate({ key: newKey.trim(), value: newValue.trim() });
+  };
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <div>
+        <h2 className="text-sm font-semibold">Edge Function Secrets</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Environment variables injected into edge functions. On Railway deploy, these become service variables.
+        </p>
+      </div>
+
+      {entries.length > 0 && (
+        <div className="space-y-1">
+          {entries.map(([key]) => (
+            <div key={key} className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2">
+              <code className="text-xs font-mono">{key}</code>
+              <button
+                onClick={() => deleteMutation.mutate(key)}
+                disabled={deleteMutation.isPending}
+                className="rounded p-1 text-muted-foreground hover:text-destructive"
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          value={newKey}
+          onChange={e => setNewKey(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleAdd()}
+          placeholder="KEY_NAME"
+          className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <input
+          value={newValue}
+          onChange={e => setNewValue(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleAdd()}
+          placeholder="value"
+          type="password"
+          className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={addMutation.isPending || !newKey.trim() || !newValue.trim()}
+          className="shrink-0 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {addMutation.isPending ? 'Saving…' : 'Add'}
+        </button>
+      </div>
+
+      {addMutation.isError && (
+        <p className="text-xs text-destructive">
+          {addMutation.error instanceof Error ? addMutation.error.message : 'Failed to save secret'}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['tophbase-status'],
@@ -258,6 +351,8 @@ const supabase = createClient('${data.url}', '${data.publishableKey}')`}</pre>
           </div>
         </div>
       </section>
+
+      <SecretsSection />
 
       <ResetDangerZone />
     </div>

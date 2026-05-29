@@ -189,6 +189,7 @@ export async function createServer(): Promise<ServerContext> {
       supabaseUrl: `http://${config.server.host}:${config.server.port}`,
       publishableKey: config.project.publishableKey,
       secretKey: config.project.secretKey,
+      secretsPath: path.join(config.project.dataDir, 'secrets.json'),
     });
   }
 

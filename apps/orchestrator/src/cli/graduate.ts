@@ -226,6 +226,9 @@ async function cmdGraduateRailway(): Promise<void> {
   // 7. Carry over local keys so production uses the same API keys as local dev
   const localKeys = await readLocalKeys();
 
+  let localSecrets: Record<string, string> = {};
+  try { localSecrets = JSON.parse(await fs.readFile('.tophbase/secrets.json', 'utf8')) as Record<string, string>; } catch { /* no secrets */ }
+
   // 8. Create Railway project, or link if it already exists
   const listOut = spawnSync('railway', ['list', '--json'], { encoding: 'utf8', shell: true, cwd: stageDir });
   let existingId: string | undefined;
@@ -279,6 +282,9 @@ async function cmdGraduateRailway(): Promise<void> {
       varFlags.push('--variables', `TOPHBASE_JWT_SECRET=${localKeys.jwtSecret}`);
       varFlags.push('--variables', `TOPHBASE_PUBLISHABLE_KEY=${localKeys.publishableKey}`);
       varFlags.push('--variables', `TOPHBASE_SECRET_KEY=${localKeys.secretKey}`);
+    }
+    for (const [k, v] of Object.entries(localSecrets)) {
+      varFlags.push('--variables', `${k}=${v}`);
     }
     console.log('\nCreating service...');
     const addService = spawnSync('railway', ['add', '--service', projectName, ...varFlags], {

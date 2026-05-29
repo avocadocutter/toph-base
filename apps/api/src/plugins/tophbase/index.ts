@@ -3,7 +3,7 @@ import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Dialect } from '../../lib/project-config.js';
-import { saveProjectConfig, loadOrCreateProjectConfig } from '../../lib/project-config.js';
+import { saveProjectConfig, loadOrCreateProjectConfig, loadSecrets, saveSecrets } from '../../lib/project-config.js';
 
 const setupSchema = z.object({
   dialect: z.enum(['supabase', 'pocketbase', 'appwrite']),
@@ -96,6 +96,29 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       } catch { /* try next */ }
     }
     return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Function '${name}' not found` } });
+  });
+
+  fastify.get('/tophbase/secrets', async (_req, reply) => {
+    const secrets = await loadSecrets(fastify.config.project.dataDir);
+    reply.send({ secrets });
+  });
+
+  fastify.post('/tophbase/secrets', async (request, reply) => {
+    const { key, value } = z.object({ key: z.string().min(1), value: z.string() }).parse(request.body);
+    const secrets = await loadSecrets(fastify.config.project.dataDir);
+    secrets[key] = value;
+    await saveSecrets(fastify.config.project.dataDir, secrets);
+    (fastify as unknown as { killEdgeFunctions?: () => void }).killEdgeFunctions?.();
+    reply.send({ ok: true });
+  });
+
+  fastify.delete<{ Params: { key: string } }>('/tophbase/secrets/:key', async (request, reply) => {
+    const { key } = request.params;
+    const secrets = await loadSecrets(fastify.config.project.dataDir);
+    delete secrets[key];
+    await saveSecrets(fastify.config.project.dataDir, secrets);
+    (fastify as unknown as { killEdgeFunctions?: () => void }).killEdgeFunctions?.();
+    reply.send({ ok: true });
   });
 
   fastify.post('/tophbase/setup', async (request, reply) => {

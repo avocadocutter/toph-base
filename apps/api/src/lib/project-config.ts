@@ -45,6 +45,18 @@ export async function loadOrCreateProjectConfig(dataDir: string): Promise<Projec
   return merged as ProjectConfig;
 }
 
+export async function loadSecrets(dataDir: string): Promise<Record<string, string>> {
+  try {
+    const raw = JSON.parse(await fs.readFile(path.join(dataDir, 'secrets.json'), 'utf8'));
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, string>;
+  } catch { /* no secrets file */ }
+  return {};
+}
+
+export async function saveSecrets(dataDir: string, secrets: Record<string, string>): Promise<void> {
+  await fs.writeFile(path.join(dataDir, 'secrets.json'), JSON.stringify(secrets, null, 2), 'utf8');
+}
+
 export async function saveProjectConfig(dataDir: string, config: ProjectConfig): Promise<void> {
   const configPath = path.join(dataDir, CONFIG_FILE);
   // Merge with existing so we don't lose port/migrationsDir written by the CLI

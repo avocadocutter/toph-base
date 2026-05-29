@@ -10,6 +10,7 @@ export interface EdgeFunctionsOptions {
   supabaseUrl: string;
   publishableKey: string;
   secretKey: string;
+  secretsPath: string;
 }
 
 interface FunctionProcess {
@@ -99,8 +100,16 @@ function extractStdServeUrls(source: string): string[] {
   return [...found];
 }
 
+async function readSecrets(secretsPath: string): Promise<Record<string, string>> {
+  try {
+    const raw = JSON.parse(await readFile(secretsPath, 'utf8'));
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, string>;
+  } catch { /* no secrets file */ }
+  return {};
+}
+
 const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fastify, opts) => {
-  const { functionsDir, supabaseUrl, publishableKey, secretKey } = opts;
+  const { functionsDir, supabaseUrl, publishableKey, secretKey, secretsPath } = opts;
 
   const denoAvailable = isDenoAvailable();
 
@@ -112,6 +121,11 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
   }
 
   const processes = new Map<string, FunctionProcess>();
+
+  fastify.decorate('killEdgeFunctions', () => {
+    for (const { proc } of processes.values()) proc.kill();
+    processes.clear();
+  });
 
   async function getOrSpawn(name: string, funcPath: string): Promise<number> {
     const existing = processes.get(name);
@@ -141,14 +155,17 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
       ? ['run', '--allow-all', '--node-modules-dir=none', `--import-map=${importMapPath}`, funcPath]
       : ['run', '--allow-all', '--node-modules-dir=none', runnerPath, funcPath, String(port)];
 
+    const secrets = await readSecrets(secretsPath);
+
     const proc = spawn('deno', denoArgs, {
       cwd: dirname(funcPath),
       env: {
         ...process.env,
+        ...secrets,
         TOPHBASE_PORT: String(port),
         SUPABASE_URL: supabaseUrl,
-        SUPABASE_ANON_KEY: publishableKey,
-        SUPABASE_SERVICE_ROLE_KEY: secretKey,
+        SUPABASE_PUBLISHABLE_KEY: publishableKey,
+        SUPABASE_SECRET_KEY: secretKey,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

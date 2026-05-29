@@ -11,6 +11,8 @@ async function main() {
       return cmdGraduate(args);
     case 'schema':
       return cmdSchema(args);
+    case 'secrets':
+      return cmdSecrets(args);
     case '--help':
     case '-h':
       printHelp();
@@ -27,6 +29,7 @@ async function main() {
 
 const LOCAL_CONFIG_DIR = '.tophbase';
 const LOCAL_CONFIG_FILE = `${LOCAL_CONFIG_DIR}/config.json`;
+const LOCAL_SECRETS_FILE = `${LOCAL_CONFIG_DIR}/secrets.json`;
 
 interface LocalConfig {
   port: number;
@@ -162,6 +165,9 @@ async function cmdFreshman(args: string[]) {
   if (pgWirePort !== undefined) process.env.TOPHBASE_PG_PORT = String(pgWirePort);
   if (functionsDir !== undefined) process.env.TOPHBASE_FUNCTIONS_DIR = functionsDir;
 
+  const secrets = await readLocalSecrets();
+  for (const [k, v] of Object.entries(secrets)) process.env[k] = v;
+
   const { start } = await import('../server.js');
   await start();
 }
@@ -175,6 +181,77 @@ function argValue(args: string[], flag: string): string | null {
     process.exit(1);
   }
   return val;
+}
+
+// ── secrets ───────────────────────────────────────────────────────────────────
+
+async function readLocalSecrets(): Promise<Record<string, string>> {
+  const fs = (await import('node:fs/promises')).default;
+  try {
+    const raw = JSON.parse(await fs.readFile(LOCAL_SECRETS_FILE, 'utf8')) as unknown;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, string>;
+  } catch { /* no file */ }
+  return {};
+}
+
+async function writeLocalSecrets(secrets: Record<string, string>): Promise<void> {
+  const fs = (await import('node:fs/promises')).default;
+  await fs.mkdir(LOCAL_CONFIG_DIR, { recursive: true });
+  await fs.writeFile(LOCAL_SECRETS_FILE, JSON.stringify(secrets, null, 2), 'utf8');
+}
+
+async function cmdSecrets(args: string[]) {
+  const sub = args[0];
+
+  if (!sub || sub === 'list') {
+    const secrets = await readLocalSecrets();
+    const keys = Object.keys(secrets);
+    if (keys.length === 0) {
+      console.log('  No secrets set.');
+    } else {
+      console.log('');
+      for (const k of keys) console.log(`  ${k}`);
+      console.log('');
+    }
+    return;
+  }
+
+  if (sub === 'set') {
+    const pairs = args.slice(1);
+    if (pairs.length === 0) {
+      console.error('Usage: tophbase secrets set KEY=VALUE [KEY2=VALUE2 ...]');
+      process.exit(1);
+    }
+    const secrets = await readLocalSecrets();
+    for (const pair of pairs) {
+      const eq = pair.indexOf('=');
+      if (eq === -1) {
+        console.error(`Invalid format: '${pair}'. Expected KEY=VALUE`);
+        process.exit(1);
+      }
+      secrets[pair.slice(0, eq)] = pair.slice(eq + 1);
+    }
+    await writeLocalSecrets(secrets);
+    console.log(`  ${pairs.length} secret(s) saved.`);
+    return;
+  }
+
+  if (sub === 'unset') {
+    const keys = args.slice(1);
+    if (keys.length === 0) {
+      console.error('Usage: tophbase secrets unset KEY [KEY2 ...]');
+      process.exit(1);
+    }
+    const secrets = await readLocalSecrets();
+    for (const k of keys) delete secrets[k];
+    await writeLocalSecrets(secrets);
+    console.log(`  ${keys.length} secret(s) removed.`);
+    return;
+  }
+
+  console.error(`tophbase secrets: unknown subcommand '${sub}'`);
+  console.error(`Available: list, set, unset`);
+  process.exit(1);
 }
 
 // ── graduate ──────────────────────────────────────────────────────────────────
@@ -230,6 +307,9 @@ function printHelp() {
 
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema
+    secrets list                     List secret names
+    secrets set KEY=VALUE ...        Set one or more secrets
+    secrets unset KEY ...            Remove one or more secrets
 
   PROVIDERS
     railway   supabase   neon   postgres
