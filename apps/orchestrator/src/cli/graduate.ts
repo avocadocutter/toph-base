@@ -52,10 +52,10 @@ export async function cmdGraduate(args: string[]): Promise<void> {
   await store.init();
 
   console.log('\nExporting local database...');
-  const { ddl, fkAlters, inserts, tableCount, rowCount } = await exportLocal(store);
+  const { ddl, fkAlters, functions, triggers, inserts, tableCount, rowCount } = await exportLocal(store);
   await store.end();
 
-  console.log(`  ${tableCount} table(s), ${rowCount} row(s)`);
+  console.log(`  ${tableCount} table(s), ${rowCount} row(s), ${functions.length} function(s), ${triggers.length} trigger(s)`);
 
   const { Client } = await import('pg');
   const client = new Client({ connectionString: connStr });
@@ -69,6 +69,12 @@ export async function cmdGraduate(args: string[]): Promise<void> {
       await client.query(stmt);
     }
     for (const stmt of fkAlters) {
+      await client.query(stmt);
+    }
+    for (const stmt of functions) {
+      await client.query(stmt);
+    }
+    for (const stmt of triggers) {
       await client.query(stmt);
     }
 
@@ -365,6 +371,8 @@ async function readLocalKeys(): Promise<{ jwtSecret: string; publishableKey: str
 interface ExportResult {
   ddl: string[];
   fkAlters: string[];
+  functions: string[];
+  triggers: string[];
   inserts: string[];
   tableCount: number;
   rowCount: number;
@@ -382,6 +390,27 @@ async function exportLocal(store: DbPool): Promise<ExportResult> {
   const fkAlters: string[] = [];
   const inserts: string[] = [];
   let rowCount = 0;
+
+  const functionsRes = await store.query<{ definition: string }>(
+    `SELECT pg_get_functiondef(p.oid) AS definition
+     FROM pg_proc p
+     JOIN pg_namespace n ON p.pronamespace = n.oid
+     WHERE n.nspname = 'public'
+     AND p.prokind IN ('f', 'p')
+     ORDER BY p.proname`
+  );
+  const functions = functionsRes.rows.map(r => r.definition.trimEnd() + (r.definition.trimEnd().endsWith(';') ? '' : ';'));
+
+  const triggersRes = await store.query<{ definition: string }>(
+    `SELECT pg_get_triggerdef(t.oid) AS definition
+     FROM pg_trigger t
+     JOIN pg_class c ON t.tgrelid = c.oid
+     JOIN pg_namespace n ON c.relnamespace = n.oid
+     WHERE n.nspname = 'public'
+     AND NOT t.tgisinternal
+     ORDER BY c.relname, t.tgname`
+  );
+  const triggers = triggersRes.rows.map(r => r.definition.trimEnd() + (r.definition.trimEnd().endsWith(';') ? '' : ';'));
 
   for (const table of tables) {
     const colsRes = await store.query<{
@@ -481,7 +510,7 @@ async function exportLocal(store: DbPool): Promise<ExportResult> {
     }
   }
 
-  return { ddl, fkAlters, inserts, tableCount: tables.length, rowCount };
+  return { ddl, fkAlters, functions, triggers, inserts, tableCount: tables.length, rowCount };
 }
 
 function pgType(col: {

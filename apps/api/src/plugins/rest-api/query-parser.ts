@@ -42,6 +42,12 @@ export interface RelationSpec {
   name: string;
   alias: string | null;     // null = use table name as key
   columns: string[] | null; // null = all columns (*)
+  countOnly: boolean;        // true when inner spec is just "count"
+}
+
+export interface EmbeddedFilter {
+  relation: string;
+  filter: ParsedFilter;
 }
 
 export interface ParsedQuery {
@@ -49,6 +55,7 @@ export interface ParsedQuery {
   relations: RelationSpec[];  // embedded relationships extracted from select param
   filters: ParsedFilter[];    // AND filters from query params
   orFilters: ParsedFilter[];  // OR group from ?or=(...)
+  embeddedFilters: EmbeddedFilter[]; // filters scoped to a related table (dotted column names)
   order: ParsedOrder[];
   limit: number | null;
   offset: number;
@@ -112,6 +119,7 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     relations: [],
     filters: [],
     orFilters: [],
+    embeddedFilters: [],
     order: [],
     limit: null,
     offset: 0,
@@ -129,10 +137,12 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
         const alias = m[1] ?? null;
         const name  = m[2];
         const relCols = m[3].trim();
+        const countOnly = relCols === 'count';
         parsed.relations.push({
           name,
           alias,
-          columns: !relCols || relCols === '*'
+          countOnly,
+          columns: countOnly || !relCols || relCols === '*'
             ? null
             : relCols.split(',').map(s => s.trim()).filter(Boolean),
         });
@@ -163,9 +173,15 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
   // Parse order
   if (querystring.order) {
     parsed.order = querystring.order.split(',').map(part => {
-      const [column, dirPart] = part.trim().split('.');
-      const direction = dirPart === 'desc' ? 'desc' : 'asc';
-      return { column, direction };
+      const segments = part.trim().split('.');
+      const column = segments[0];
+      const direction = segments[1] === 'desc' ? 'desc' : 'asc';
+      const nullsPart = segments[2];
+      const nulls: 'first' | 'last' | undefined =
+        nullsPart === 'nullsfirst' ? 'first' :
+        nullsPart === 'nullslast'  ? 'last'  :
+        undefined;
+      return { column, direction, nulls };
     });
   }
 
@@ -186,11 +202,19 @@ export function parseQueryParams(querystring: Record<string, string | undefined>
     }
   }
 
-  // Parse AND filters: any remaining param with op.value syntax, including not.op.value
+  // Parse AND filters: any remaining param with op.value syntax, including not.op.value.
+  // Dotted keys like "relation.column=op.value" are embedded relation filters.
   const reservedKeys = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or', 'columns']);
   for (const [key, rawValue] of Object.entries(querystring)) {
     if (reservedKeys.has(key) || !rawValue) continue;
-    parsed.filters.push(parseOneFilter(key, rawValue));
+    const dotPos = key.indexOf('.');
+    if (dotPos !== -1) {
+      const relation = key.slice(0, dotPos);
+      const column   = key.slice(dotPos + 1);
+      parsed.embeddedFilters.push({ relation, filter: parseOneFilter(column, rawValue) });
+    } else {
+      parsed.filters.push(parseOneFilter(key, rawValue));
+    }
   }
 
   return parsed;
