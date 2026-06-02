@@ -305,6 +305,23 @@ const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, 
         hint: null,
       });
     }
+    // Surface Postgres errors with a sane HTTP status instead of a generic 500.
+    // SQLSTATE codes: https://www.postgresql.org/docs/current/errcodes-appendix.html
+    const pgCode = (error as { code?: string }).code;
+    if (typeof pgCode === 'string' && /^[0-9A-Z]{5}$/.test(pgCode)) {
+      const status =
+        pgCode === '42501' ? 403 :                                  // insufficient_privilege
+        pgCode === '42P01' || pgCode === '42883' ? 404 :            // undefined_table / undefined_function
+        pgCode.startsWith('23') ? 409 :                             // integrity_constraint_violation
+        pgCode.startsWith('22') || pgCode.startsWith('42') ? 400 :  // data_exception / syntax_error_or_access_rule_violation
+        500;
+      return reply.status(status).send({
+        code: pgCode,
+        message: (error as Error).message,
+        details: null,
+        hint: null,
+      });
+    }
     request.log.error(error);
     return reply.status(500).send({
       code: 'PGRST',

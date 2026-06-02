@@ -17,6 +17,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Baseline schema privileges. Re-applied on every startup so DBs created
+-- before these grants existed get repaired idempotently.
+GRANT USAGE ON SCHEMA auth       TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA public     TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
+GRANT CREATE ON SCHEMA public    TO authenticated, service_role;
+
 CREATE TABLE IF NOT EXISTS auth.users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email         TEXT NOT NULL UNIQUE,
@@ -44,6 +51,11 @@ CREATE TABLE IF NOT EXISTS auth.sessions (
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx   ON auth.sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
+
+-- Table-level grants for auth.* — idempotent, re-applied on every startup.
+GRANT SELECT                      ON auth.users    TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users    TO authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sessions TO service_role;
 
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
   LANGUAGE sql STABLE AS $$

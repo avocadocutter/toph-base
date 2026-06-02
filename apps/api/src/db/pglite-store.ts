@@ -70,10 +70,6 @@ export interface DbPool {
   restoreFromDump?(dump: Buffer): Promise<void>;
 }
 
-// Statements intercepted at the client level and handled as no-ops in local mode.
-// PGLite has a single built-in role; SET LOCAL ROLE is meaningless here.
-const NOOP_STATEMENTS = /^\s*(SET\s+LOCAL\s+ROLE|SET\s+ROLE)\s+/i;
-
 export class PGliteStore implements DbPool {
   private db: PGlite;
   private readonly dataDir: string;
@@ -109,10 +105,6 @@ export class PGliteStore implements DbPool {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async query<T = any>(text: string, values?: unknown[]): Promise<QueryResult<T>> {
         const trimmed = text.trim().toUpperCase();
-
-        if (NOOP_STATEMENTS.test(text)) {
-          return { rows: [], rowCount: 0 };
-        }
 
         if (trimmed === 'BEGIN') {
           await store.db.exec('BEGIN');
