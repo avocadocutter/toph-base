@@ -141,13 +141,13 @@ async function handleGet(request: FastifyRequest, reply: FastifyReply) {
   if (wantCount) {
     const countQuery = buildCountQuery(table, parsed);
     const [data, countResult] = await Promise.all([
-      executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values),
-      executeWithRlsContext(projectDb, request.jwtPayload, countQuery.text, countQuery.values),
+      executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values, request.userRole),
+      executeWithRlsContext(projectDb, request.jwtPayload, countQuery.text, countQuery.values, request.userRole),
     ]);
     rows = data.rows;
     total = (countResult.rows[0]?.count as number | undefined) ?? 0;
   } else {
-    const data = await executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values);
+    const data = await executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values, request.userRole);
     rows = data.rows;
   }
 
@@ -183,7 +183,7 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply) {
     ? buildUpsertQuery(table, rows, prefer.resolution === 'ignore-duplicates', parsed.onConflict)
     : buildInsertQuery(table, rows);
 
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -210,7 +210,7 @@ async function handlePatch(request: FastifyRequest, reply: FastifyReply) {
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
   const query = buildUpdateQuery(table, body, parsed.filters, parsed.orFilters);
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -232,7 +232,7 @@ async function handleDelete(request: FastifyRequest, reply: FastifyReply) {
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
   const query = buildDeleteQuery(table, parsed.filters, parsed.orFilters);
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -265,7 +265,7 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
     queryValues = args.map(([_, v]) => v);
   }
 
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues, request.userRole);
 
   if (prefer.return === 'minimal') return reply.status(204).send();
 

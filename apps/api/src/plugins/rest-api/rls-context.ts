@@ -29,12 +29,16 @@ export async function executeWithRlsContext(
   jwtPayload: ProjectJwtPayload | undefined,
   queryText: string,
   queryValues: unknown[],
+  userRole?: string,
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
 
-    const role = jwtPayload?.role ?? 'anon';
+    // userRole wins for secret-key requests where there is no JWT but the
+    // resolver flagged the caller as service_role. Otherwise fall back to
+    // the JWT's role claim, defaulting to anon for unauthenticated traffic.
+    const role = userRole ?? jwtPayload?.role ?? 'anon';
     if (!ALLOWED_ROLES.has(role)) {
       throw new BadRequestError(`Invalid role: ${role}`);
     }
