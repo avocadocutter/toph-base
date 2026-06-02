@@ -66,6 +66,8 @@ export interface DbPool {
   exec(sql: string): Promise<void>;
   connect(): Promise<DbClient>;
   end(): Promise<void>;
+  dumpDataDir?(): Promise<Buffer>;
+  restoreFromDump?(dump: Buffer): Promise<void>;
 }
 
 // Statements intercepted at the client level and handled as no-ops in local mode.
@@ -74,8 +76,10 @@ const NOOP_STATEMENTS = /^\s*(SET\s+LOCAL\s+ROLE|SET\s+ROLE)\s+/i;
 
 export class PGliteStore implements DbPool {
   private db: PGlite;
+  private readonly dataDir: string;
 
   constructor(dataDir: string) {
+    this.dataDir = dataDir;
     this.db = new PGlite({ dataDir, extensions: ALL_EXTENSIONS });
   }
 
@@ -145,6 +149,21 @@ export class PGliteStore implements DbPool {
     };
 
     return Promise.resolve(client);
+  }
+
+  async dumpDataDir(): Promise<Buffer> {
+    const blob = await this.db.dumpDataDir('gzip');
+    return Buffer.from(await blob.arrayBuffer());
+  }
+
+  async restoreFromDump(dump: Buffer): Promise<void> {
+    await this.db.close();
+    const { rm, mkdir: mkdirFs } = await import('node:fs/promises');
+    await rm(this.dataDir, { recursive: true, force: true });
+    await mkdirFs(this.dataDir, { recursive: true });
+    const blob = new Blob([dump], { type: 'application/x-gzip' });
+    this.db = new PGlite({ dataDir: this.dataDir, loadDataDir: blob, extensions: ALL_EXTENSIONS });
+    await this.db.waitReady;
   }
 
   async end(): Promise<void> {

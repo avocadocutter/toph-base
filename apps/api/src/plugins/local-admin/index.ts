@@ -5,8 +5,8 @@ import { quoteIdentifier, isValidIdentifier } from '../../lib/sql-helpers.js';
 import { validateColumnType, validateDefaultValue } from '../../lib/sql-types.js';
 import { z } from 'zod';
 import { BadRequestError, NotFoundError, AppError } from '../../lib/errors.js';
-import { readFile, writeFile, mkdir, readdir, access, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, writeFile, mkdir, readdir, access, unlink, stat, rm } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { preprocessMigrationSql } from '../../lib/sql-preprocessor.js';
 import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
@@ -587,6 +587,142 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
       droppedTables: tables.map(t => t.tablename),
       authCleared: body.includeAuth ?? false,
     };
+  });
+
+  // ── Backup ───────────────────────────────────────────────────────────────
+
+  fastify.get('/admin/backup', async (_request, reply) => {
+    const { project } = fastify.config;
+    const dataDir = project.dataDir;
+
+    if (!fastify.db.dumpDataDir) {
+      return reply.status(503).send({ error: { code: 'NOT_SUPPORTED', message: 'Backup not supported on this database backend' } });
+    }
+    const dbDump = await fastify.db.dumpDataDir();
+
+    const [configJson, secretsJson] = await Promise.all([
+      readFile(join(dataDir, 'config.json'), 'utf8').catch(() => '{}'),
+      readFile(join(dataDir, 'secrets.json'), 'utf8').catch(() => '{}'),
+    ]);
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="tophbase-backup-${timestamp}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.pipe(reply.raw);
+
+    const meta = JSON.stringify({
+      version: '1',
+      createdAt: new Date().toISOString(),
+      tophbaseVersion: '0.1.0',
+    }, null, 2);
+    archive.append(meta, { name: 'backup-meta.json' });
+    archive.append(configJson, { name: 'config.json' });
+    archive.append(secretsJson, { name: 'secrets.json' });
+    archive.append(dbDump, { name: 'db.tar.gz' });
+
+    const storageDir = join(dataDir, 'storage');
+    const storageExists = await stat(storageDir).then(s => s.isDirectory()).catch(() => false);
+    if (storageExists) {
+      archive.directory(storageDir, 'storage');
+    }
+
+    const migrationsDir = process.env.TOPHBASE_MIGRATIONS_DIR;
+    if (migrationsDir) {
+      const migrationsExist = await stat(migrationsDir).then(s => s.isDirectory()).catch(() => false);
+      if (migrationsExist) {
+        archive.directory(migrationsDir, 'migrations');
+      }
+    }
+
+    await archive.finalize();
+    return reply;
+  });
+
+  fastify.post('/admin/restore', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!fastify.db.restoreFromDump) {
+      return reply.status(503).send({ error: { code: 'NOT_SUPPORTED', message: 'Restore not supported on this database backend' } });
+    }
+
+    let zipBuffer: Buffer | null = null;
+    for await (const part of request.parts()) {
+      if (part.type === 'file') {
+        zipBuffer = await (part as unknown as { toBuffer: () => Promise<Buffer> }).toBuffer();
+        break;
+      }
+    }
+    if (!zipBuffer) throw new BadRequestError('No file uploaded');
+
+    let unzipped: ReturnType<typeof unzipSync>;
+    try {
+      unzipped = unzipSync(zipBuffer);
+    } catch {
+      throw new BadRequestError('Invalid or corrupt zip file');
+    }
+
+    const metaRaw = unzipped['backup-meta.json'];
+    if (!metaRaw) throw new BadRequestError('Not a valid Tophbase backup (missing backup-meta.json)');
+
+    let meta: { version: string };
+    try {
+      meta = JSON.parse(new TextDecoder().decode(metaRaw)) as { version: string };
+    } catch {
+      throw new BadRequestError('Corrupt backup-meta.json');
+    }
+    if (meta.version !== '1') throw new BadRequestError(`Unsupported backup version: ${meta.version}`);
+
+    const dbEntry = unzipped['db.tar.gz'];
+    if (!dbEntry) throw new BadRequestError('Backup is missing db.tar.gz');
+
+    const { project } = fastify.config;
+    const dataDir = project.dataDir;
+    const restored: string[] = [];
+
+    await fastify.db.restoreFromDump(Buffer.from(dbEntry));
+    restored.push('database');
+
+    const configEntry = unzipped['config.json'];
+    if (configEntry) {
+      await writeFile(join(dataDir, 'config.json'), Buffer.from(configEntry));
+      restored.push('config');
+    }
+
+    const secretsEntry = unzipped['secrets.json'];
+    if (secretsEntry) {
+      await writeFile(join(dataDir, 'secrets.json'), Buffer.from(secretsEntry));
+      restored.push('secrets');
+    }
+
+    const storageEntries = Object.entries(unzipped).filter(([p]) => p.startsWith('storage/') && !p.endsWith('/'));
+    if (storageEntries.length > 0) {
+      const storageDir = join(dataDir, 'storage');
+      await rm(storageDir, { recursive: true, force: true });
+      for (const [p, data] of storageEntries) {
+        const relPath = p.slice('storage/'.length);
+        if (!relPath) continue;
+        const filePath = join(storageDir, relPath);
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, Buffer.from(data));
+      }
+      restored.push('storage');
+    }
+
+    const migrationsDir = process.env.TOPHBASE_MIGRATIONS_DIR;
+    const migrationEntries = Object.entries(unzipped).filter(([p]) => p.startsWith('migrations/') && p.endsWith('.sql'));
+    if (migrationsDir && migrationEntries.length > 0) {
+      await mkdir(migrationsDir, { recursive: true });
+      for (const [p, data] of migrationEntries) {
+        const filename = p.split('/').pop() ?? '';
+        if (!/^[a-zA-Z0-9_.-]+\.sql$/.test(filename)) continue;
+        await writeFile(join(migrationsDir, filename), Buffer.from(data));
+      }
+      restored.push('migrations');
+    }
+
+    invalidateCache('local');
+
+    return { ok: true, restored };
   });
 };
 

@@ -181,16 +181,26 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
       rejectReady(new Error(`edge function '${name}' did not start within 30s`));
     }, 30_000);
 
+    let isReady = false;
     proc.stdout!.on('data', (chunk: Buffer) => {
-      if (chunk.toString().includes('TOPHBASE_READY')) {
-        clearTimeout(timeout);
-        resolveReady();
+      const text = chunk.toString();
+      if (!isReady) {
+        if (text.includes('TOPHBASE_READY')) {
+          clearTimeout(timeout);
+          isReady = true;
+          resolveReady();
+        }
+        return;
+      }
+      for (const line of text.trimEnd().split('\n')) {
+        if (line) fastify.log.info(`[edge:${name}] ${line}`);
       }
     });
 
     proc.stderr!.on('data', (chunk: Buffer) => {
-      const msg = chunk.toString().trimEnd();
-      fastify.log.warn(`[edge:${name}] ${msg.length > 100 ? msg.slice(0, 100) + '…' : msg}`);
+      for (const line of chunk.toString().trimEnd().split('\n')) {
+        if (line) fastify.log.error(`[edge:${name}] ${line}`);
+      }
     });
 
     proc.on('exit', (code) => {
@@ -273,7 +283,9 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
     });
 
     const responseBody = Buffer.from(await res.arrayBuffer());
-    fastify.log.debug(`[edge:${name}] response ${res.status} body: ${responseBody.length > 100 ? responseBody.subarray(0, 100).toString() + '…' : responseBody.toString()}`);
+    if (res.status >= 500) {
+      fastify.log.error(`[edge:${name}] responded ${res.status}: ${responseBody.toString().slice(0, 500)}`);
+    }
     return reply.send(responseBody);
   };
 
