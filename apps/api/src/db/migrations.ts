@@ -61,7 +61,7 @@ CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.sub', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'sub'
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'sub'
     )::uuid
   $$;
 
@@ -69,7 +69,7 @@ CREATE OR REPLACE FUNCTION auth.role() RETURNS text
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.role', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'role',
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'role',
       'anon'
     )
   $$;
@@ -78,7 +78,7 @@ CREATE OR REPLACE FUNCTION auth.email() RETURNS text
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.email', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'email'
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'email'
     )
   $$;
 

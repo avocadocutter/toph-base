@@ -188,15 +188,17 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
     const project = request.project!;
     const projectDb = request.projectDb!;
     const tables = await introspectSchema(projectDb, 'public', project.ref);
-    return Array.from(tables.values()).map(t => ({
-      schema: t.schema,
-      name: t.name,
-      type: t.type,
-      columnCount: t.columns.length,
-      primaryKey: t.primaryKey,
-      rlsEnabled: t.rlsEnabled,
-      rlsForced: t.rlsForced,
-    }));
+    return Array.from(tables.values())
+      .filter(t => t.type === 'table')
+      .map(t => ({
+        schema: t.schema,
+        name: t.name,
+        type: t.type,
+        columnCount: t.columns.length,
+        primaryKey: t.primaryKey,
+        rlsEnabled: t.rlsEnabled,
+        rlsForced: t.rlsForced,
+      }));
   });
 
   // Get table details in project database

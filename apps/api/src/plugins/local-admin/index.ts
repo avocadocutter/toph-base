@@ -60,15 +60,17 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get('/admin/tables', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest) => {
     const projectDb = request.projectDb!;
     const tables = await introspectSchema(projectDb, 'public', 'local');
-    return Array.from(tables.values()).map(t => ({
-      schema: t.schema,
-      name: t.name,
-      type: t.type,
-      columnCount: t.columns.length,
-      primaryKey: t.primaryKey,
-      rlsEnabled: t.rlsEnabled,
-      rlsForced: t.rlsForced,
-    }));
+    return Array.from(tables.values())
+      .filter(t => t.type === 'table')
+      .map(t => ({
+        schema: t.schema,
+        name: t.name,
+        type: t.type,
+        columnCount: t.columns.length,
+        primaryKey: t.primaryKey,
+        rlsEnabled: t.rlsEnabled,
+        rlsForced: t.rlsForced,
+      }));
   });
 
   fastify.post('/admin/tables', { preHandler: [resolveLocalProject] }, async (request: FastifyRequest, reply: FastifyReply) => {
