@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SSL_REQUEST_CODE = 80877103; // 0x04D2162F — PostgreSQL SSLRequest message
 
 export async function start(): Promise<void> {
-  const { fastify, config, store, branchManager } = await createServer();
+  const { fastify, config, store } = await createServer();
 
   // Two layouts:
   //   repo dev:  orchestrator/src/__dirname → ../../dashboard/dist = apps/dashboard/dist
@@ -102,7 +102,6 @@ export async function start(): Promise<void> {
     tcpServer?.close();
     await pgServer?.stop();
     await fastify.close();
-    await branchManager.shutdown();
     process.exit(0);
   };
   process.once('SIGTERM', shutdown);

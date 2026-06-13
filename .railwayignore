@@ -1,0 +1,14 @@
+node_modules
+apps/api/node_modules
+apps/dashboard/node_modules
+apps/orchestrator/node_modules
+apps/dashboard/dist
+tmp
+.turbo
+coverage
+*.log
+.DS_Store
+.env
+.env.local
+.agents
+.tophbase

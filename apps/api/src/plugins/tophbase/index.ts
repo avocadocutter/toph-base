@@ -15,7 +15,6 @@ export interface TophbaseStatus {
   version: string;
   url: string;
   publishableKey: string;
-  secretKey: string;
   functionsDir: string | null;
 }
 
@@ -64,7 +63,6 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       version: '0.1.0',
       url: resolvePublicUrl(server.port),
       publishableKey: project.publishableKey,
-      secretKey: project.secretKey,
       functionsDir: functions.dir,
     });
   });
@@ -82,13 +80,14 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Functions not configured' } });
     }
     const { name } = request.params;
+    const base = path.resolve(functions.dir);
     const candidates = [
       path.join(functions.dir, name, 'index.ts'),
       path.join(functions.dir, name, 'index.tsx'),
       path.join(functions.dir, name, 'index.js'),
       path.join(functions.dir, name + '.ts'),
       path.join(functions.dir, name + '.js'),
-    ];
+    ].filter(p => path.resolve(p).startsWith(base + path.sep) || path.resolve(p) === base);
     for (const filePath of candidates) {
       try {
         const source = await fs.readFile(filePath, 'utf8');
@@ -96,6 +95,17 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       } catch { /* try next */ }
     }
     return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Function '${name}' not found` } });
+  });
+
+  // Only same-origin browser requests (and non-browser callers) can reach this.
+  // Cross-origin fetches always carry an Origin header; we reject them so that
+  // a malicious page cannot steal the service-role JWT.
+  fastify.get('/tophbase/secret-key', async (request, reply) => {
+    if (request.headers.origin) {
+      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Forbidden' } });
+    }
+    reply.header('Cache-Control', 'no-store');
+    return { secretKey: fastify.config.project.secretKey };
   });
 
   fastify.get('/tophbase/secrets', async (_req, reply) => {

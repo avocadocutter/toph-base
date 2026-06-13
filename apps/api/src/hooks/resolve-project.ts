@@ -4,7 +4,7 @@ import { verifyProjectAccessToken } from '../plugins/auth/jwt.js';
 export async function resolveLocalProject(request: FastifyRequest, _reply: FastifyReply) {
   const { project } = request.server.config;
   request.project = { ref: project.name, jwtSecret: project.jwtSecret };
-  request.projectDb = request.server.branchManager.getActiveStore();
+  request.projectDb = request.server.db;
 
   const authHeader = request.headers.authorization;
   const apikey = request.headers['apikey'] as string | undefined;

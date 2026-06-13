@@ -6,7 +6,6 @@ import helmet from '@fastify/helmet';
 import { buildConfig, type Config } from './config.js';
 import { loadOrCreateProjectConfig, type Dialect } from './lib/project-config.js';
 import { PGliteStore } from './db/pglite-store.js';
-import { BranchManager } from './db/branch-manager.js';
 import { runBootstrapMigrations } from './db/migrations.js';
 import { authenticateProject, authenticateProjectOptional } from './hooks/authenticate.js';
 import { resolveLocalProject } from './hooks/resolve-project.js';
@@ -18,7 +17,6 @@ import rlsPlugin from './plugins/rls/index.js';
 import realtimePlugin from './plugins/realtime/index.js';
 import tophbasePlugin from './plugins/tophbase/index.js';
 import localAdminPlugin from './plugins/local-admin/index.js';
-import branchesPlugin from './plugins/branches/index.js';
 import storagePlugin from './plugins/storage/index.js';
 import edgeFunctionsPlugin from './plugins/edge-functions/index.js';
 import fs from 'node:fs/promises';
@@ -35,7 +33,6 @@ export interface ServerContext {
   fastify: FastifyInstance;
   config: Config;
   store: PGliteStore;
-  branchManager: BranchManager;
 }
 
 export async function createServer(): Promise<ServerContext> {
@@ -67,8 +64,7 @@ export async function createServer(): Promise<ServerContext> {
 
   await runBootstrapMigrations(mainStore);
 
-  const branchManager = await BranchManager.create(dataDir, mainStore);
-  const store = branchManager.getActiveStore();
+  const store = mainStore;
 
   const fastify = Fastify({
     logger: {
@@ -95,7 +91,6 @@ export async function createServer(): Promise<ServerContext> {
 
   fastify.decorate('db', store);
   fastify.decorate('config', config);
-  fastify.decorate('branchManager', branchManager);
   fastify.decorate('authenticate', authenticateProject);
 
   (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect = projectConfig.dialect;
@@ -172,7 +167,6 @@ export async function createServer(): Promise<ServerContext> {
   await fs.mkdir(storageDir, { recursive: true });
 
   await fastify.register(tophbasePlugin);
-  await fastify.register(branchesPlugin);
   await fastify.register(localAdminPlugin);
   await fastify.register(storagePlugin, { storageDir, prefix: '/storage/v1' });
   await fastify.register(realtimePlugin);
@@ -195,7 +189,7 @@ export async function createServer(): Promise<ServerContext> {
 
   startCronBridge(store);
 
-  return { fastify, config, store, branchManager };
+  return { fastify, config, store };
 }
 
 function matchCronField(field: string, value: number): boolean {

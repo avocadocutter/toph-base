@@ -849,7 +849,7 @@ const adminPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Create zip archive
     const archive = archiver('zip', {
-      zlib: { level: 9 } // Maximum compression
+      zlib: { level: 9 }
     });
 
     // Pipe archive to response
