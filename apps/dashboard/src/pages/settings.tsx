@@ -222,6 +222,23 @@ function RestoreSection() {
 }
 
 
+function parseDotEnv(text: string): { key: string; value: string }[] {
+  const results: { key: string; value: string }[] = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq < 1) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key) results.push({ key, value });
+  }
+  return results;
+}
+
 function SecretsSection() {
   const queryClient = useQueryClient();
   const { data } = useQuery({
@@ -231,6 +248,10 @@ function SecretsSection() {
 
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const addMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -254,13 +275,43 @@ function SecretsSection() {
     addMutation.mutate({ key: newKey.trim(), value: newValue.trim() });
   };
 
+  const handleBulkSave = async () => {
+    setBulkError(null);
+    const pairs = parseDotEnv(bulkText);
+    if (pairs.length === 0) {
+      setBulkError('No valid KEY=value lines found.');
+      return;
+    }
+    setBulkSaving(true);
+    try {
+      for (const { key, value } of pairs) {
+        await api.post('/tophbase/secrets', { key, value });
+      }
+      queryClient.invalidateQueries({ queryKey: ['tophbase-secrets'] });
+      setBulkText('');
+      setBulkMode(false);
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : 'Failed to save secrets');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   return (
     <section className="space-y-3 rounded-lg border border-border bg-card p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Edge Function Secrets</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Environment variables injected into edge functions. On Railway deploy, these become service variables.
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Edge Function Secrets</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Environment variables injected into edge functions. On Railway deploy, these become service variables.
+          </p>
+        </div>
+        <button
+          onClick={() => { setBulkMode(v => !v); setBulkError(null); }}
+          className="shrink-0 rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {bulkMode ? 'Single' : 'Bulk import'}
+        </button>
       </div>
 
       {entries.length > 0 && (
@@ -281,35 +332,65 @@ function SecretsSection() {
         </div>
       )}
 
-      <div className="flex gap-2">
-        <input
-          value={newKey}
-          onChange={e => setNewKey(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAdd()}
-          placeholder="KEY_NAME"
-          className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        <input
-          value={newValue}
-          onChange={e => setNewValue(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAdd()}
-          placeholder="value"
-          type="password"
-          className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        <button
-          onClick={handleAdd}
-          disabled={addMutation.isPending || !newKey.trim() || !newValue.trim()}
-          className="shrink-0 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {addMutation.isPending ? 'Saving…' : 'Add'}
-        </button>
-      </div>
+      {bulkMode ? (
+        <div className="space-y-2">
+          <textarea
+            value={bulkText}
+            onChange={e => setBulkText(e.target.value)}
+            placeholder={'KEY_ONE=value1\nKEY_TWO=value2\n# comments are ignored'}
+            rows={6}
+            className="w-full rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBulkSave}
+              disabled={bulkSaving || !bulkText.trim()}
+              className="shrink-0 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkSaving ? 'Saving…' : `Save ${parseDotEnv(bulkText).length || ''} secrets`.trim()}
+            </button>
+            <button
+              onClick={() => { setBulkMode(false); setBulkText(''); setBulkError(null); }}
+              className="rounded border border-border px-3 py-1.5 text-xs hover:bg-accent"
+            >
+              Cancel
+            </button>
+          </div>
+          {bulkError && <p className="text-xs text-destructive">{bulkError}</p>}
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <input
+              value={newKey}
+              onChange={e => setNewKey(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              placeholder="KEY_NAME"
+              className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <input
+              value={newValue}
+              onChange={e => setNewValue(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              placeholder="value"
+              type="password"
+              className="flex-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              onClick={handleAdd}
+              disabled={addMutation.isPending || !newKey.trim() || !newValue.trim()}
+              className="shrink-0 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {addMutation.isPending ? 'Saving…' : 'Add'}
+            </button>
+          </div>
 
-      {addMutation.isError && (
-        <p className="text-xs text-destructive">
-          {addMutation.error instanceof Error ? addMutation.error.message : 'Failed to save secret'}
-        </p>
+          {addMutation.isError && (
+            <p className="text-xs text-destructive">
+              {addMutation.error instanceof Error ? addMutation.error.message : 'Failed to save secret'}
+            </p>
+          )}
+        </>
       )}
     </section>
   );
