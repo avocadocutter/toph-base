@@ -3,9 +3,11 @@
 [![CI](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml/badge.svg)](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml)
 ![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=claude&logoColor=fff)
 
-A local Supabase-compatible backend you can run inside any project — no Docker, no external database.
+A local Supabase-compatible backend for development and MVPs — no Docker, no external database. Not intended for production.
 
-Built and maintained by [avocadocutter](https://github.com/avocadocutter). Early and evolving — expect rough edges. Issues and PRs are welcome.
+Early and evolving — expect rough edges. Issues and PRs are welcome.
+
+**The goal:** build locally with tophbase, then `graduate` to your cloud host when ready. Railway is supported today. `graduate --provider supabase` is on the roadmap — we're aiming for it but need more real-world usage and testing to get there. Try it, break it, open issues.
 
 This project is built with AI assistance ([Claude Code](https://claude.ai/code)). All code is reviewed and understood by the maintainer before merge.
 
@@ -41,9 +43,15 @@ If you pass `--pg-wire-port`, it overrides the saved value. If no port is saved 
 
 Everything lives in `.tophbase/` in the current directory (data, config). Add `.tophbase/` to your `.gitignore`.
 
-### `tophbase graduate` _(not yet ready)_
+### `tophbase graduate`
 
-The plan: when you're ready to go to production, `graduate` will export your local PGlite database and apply it to a real Postgres instance. The command exists and accepts a `--provider` flag (`railway`, `supabase`, `neon`, `postgres`), but the export is incomplete — it currently only handles `public` schema base tables (columns, PKs, unique constraints, foreign keys, and row data). Views, functions, triggers, enums, indexes, check constraints, other schemas (`auth`, `storage`, `cron`), and storage files on disk are not exported. Don't use it for real data yet.
+`graduate` deploys your local tophbase instance to Railway — same behavior as local, just hosted. Pass `--provider railway` to deploy.
+
+```bash
+tophbase graduate --provider railway
+```
+
+Currently handles `public` schema base tables (columns, PKs, unique constraints, foreign keys, and row data). Views, functions, triggers, enums, indexes, check constraints, other schemas (`auth`, `storage`, `cron`), and storage files on disk are not yet exported.
 
 ### `tophbase schema refresh`
 
@@ -67,7 +75,7 @@ toph-base/
 └── scripts/            # Build utilities
 ```
 
-- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files in production.
+- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
 - **apps/dashboard** — the admin SPA. Create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
 - **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup and `graduate` export, and exposes the `schema` command.
 - **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
@@ -201,7 +209,7 @@ For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + sto
 | `plv8`, `pgroonga`, `wrappers` | ❌ Clear error | Not available in local mode |
 | Auth — OAuth, magic link, MFA | ❌ Not implemented | |
 | Realtime | ⚠️ No-op stub | WebSocket endpoint accepts connections and handles heartbeats so `createClient()` doesn't error — no actual event delivery |
-| Edge Functions | ❌ Not implemented | |
+| Edge Functions | ⚠️ Partial | Deno-based functions with import map shim; managed via dashboard. Some Deno APIs may differ from Supabase's hosted runtime. |
 
 `CREATE EXTENSION IF NOT EXISTS` for unsupported extensions is stripped by the migration runner — migrations always apply cleanly.
 
