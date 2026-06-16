@@ -8,7 +8,7 @@
  * To add relationship embedding: extend buildRelationSubquery() using TableInfo.foreignKeys.
  */
 
-import type { ParsedQuery, ParsedFilter, ParsedOrder, RelationSpec } from './query-parser.js';
+import type { ParsedQuery, ParsedFilter, ParsedOrder, RelationSpec, EmbeddedFilter } from './query-parser.js';
 import type { TableInfo } from '../introspection/types.js';
 import { quoteIdentifier } from '../../lib/sql-helpers.js';
 import { BadRequestError } from '../../lib/errors.js';
@@ -33,49 +33,51 @@ function buildFilterExpr(
   filter: ParsedFilter,
   paramIndex: number,
   values: unknown[],
+  coercedValue?: unknown,
 ): { expr: string; consumed: number } {
   const col = quoteIdentifier(filter.column);
+  const paramValue = coercedValue !== undefined ? coercedValue : filter.value;
   let expr: string;
   let consumed = 0;
 
   switch (filter.operator) {
     case 'eq':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} = $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'neq':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} != $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'gt':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} > $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'gte':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} >= $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'lt':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} < $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'lte':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} <= $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'like':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} LIKE $${paramIndex + 1}`;
       consumed = 1;
       break;
     case 'ilike':
-      values.push(filter.value);
+      values.push(paramValue);
       expr = `${col} ILIKE $${paramIndex + 1}`;
       consumed = 1;
       break;
@@ -102,6 +104,17 @@ function buildFilterExpr(
   return { expr, consumed };
 }
 
+function coerceFilterValue(rawValue: string, table: TableInfo, columnName: string): unknown {
+  const col = table.columns.find(c => c.name === columnName);
+  if (!col) return rawValue;
+  const dt = (col.dataType || col.udtName || '').toLowerCase();
+  if (dt === 'boolean') {
+    if (rawValue === 'true') return true;
+    if (rawValue === 'false') return false;
+  }
+  return rawValue;
+}
+
 function buildWhereClause(
   filters: ParsedFilter[],
   orFilters: ParsedFilter[],
@@ -115,7 +128,8 @@ function buildWhereClause(
   if (filters.length > 0) {
     validateColumns(filters.map(f => f.column), table);
     for (const filter of filters) {
-      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      const coerced = coerceFilterValue(filter.value, table, filter.column);
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values, coerced);
       andConditions.push(expr);
       paramIndex += consumed;
     }
@@ -125,7 +139,8 @@ function buildWhereClause(
   if (orFilters.length > 0) {
     validateColumns(orFilters.map(f => f.column), table);
     for (const filter of orFilters) {
-      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values);
+      const coerced = coerceFilterValue(filter.value, table, filter.column);
+      const { expr, consumed } = buildFilterExpr(filter, paramIndex, values, coerced);
       orConditions.push(expr);
       paramIndex += consumed;
     }
@@ -143,8 +158,52 @@ function buildWhereClause(
 function buildOrderClause(order: ParsedOrder[], table: TableInfo): string {
   if (order.length === 0) return '';
   validateColumns(order.map(o => o.column), table);
-  const parts = order.map(o => `${quoteIdentifier(o.column)} ${o.direction.toUpperCase()}`);
+  const parts = order.map(o => {
+    let sql = `${quoteIdentifier(o.column)} ${o.direction.toUpperCase()}`;
+    if (o.nulls) sql += ` NULLS ${o.nulls.toUpperCase()}`;
+    return sql;
+  });
   return `ORDER BY ${parts.join(', ')}`;
+}
+
+function pgLiteralInline(val: string): string {
+  if (val === 'null') return 'NULL';
+  if (val === 'true') return 'TRUE';
+  if (val === 'false') return 'FALSE';
+  if (/^-?\d+(\.\d+)?$/.test(val)) return val;
+  return `'${val.replace(/'/g, "''")}'`;
+}
+
+function buildEmbeddedWhereExtra(filters: ParsedFilter[]): string {
+  if (filters.length === 0) return '';
+  const parts = filters.map(f => {
+    const col = quoteIdentifier(f.column);
+    let expr: string;
+    switch (f.operator) {
+      case 'eq':   expr = `${col} = ${pgLiteralInline(f.value)}`; break;
+      case 'neq':  expr = `${col} != ${pgLiteralInline(f.value)}`; break;
+      case 'gt':   expr = `${col} > ${pgLiteralInline(f.value)}`; break;
+      case 'gte':  expr = `${col} >= ${pgLiteralInline(f.value)}`; break;
+      case 'lt':   expr = `${col} < ${pgLiteralInline(f.value)}`; break;
+      case 'lte':  expr = `${col} <= ${pgLiteralInline(f.value)}`; break;
+      case 'like': expr = `${col} LIKE ${pgLiteralInline(f.value)}`; break;
+      case 'ilike':expr = `${col} ILIKE ${pgLiteralInline(f.value)}`; break;
+      case 'is':
+        if (f.value === 'null')       expr = `${col} IS NULL`;
+        else if (f.value === 'true')  expr = `${col} IS TRUE`;
+        else if (f.value === 'false') expr = `${col} IS FALSE`;
+        else expr = `${col} IS NULL`;
+        break;
+      case 'in': {
+        const vals = f.value.replace(/^\(|\)$/g, '').split(',').map(pgLiteralInline);
+        expr = `${col} IN (${vals.join(', ')})`;
+        break;
+      }
+      default: expr = `${col} = ${pgLiteralInline(f.value)}`;
+    }
+    return f.negate ? `NOT (${expr})` : expr;
+  });
+  return ' AND ' + parts.join(' AND ');
 }
 
 // Builds a correlated subquery expression for an embedded relation.
@@ -153,11 +212,12 @@ function buildRelationSubquery(
   table: TableInfo,
   rel: RelationSpec,
   allTables: Map<string, TableInfo>,
+  embeddedFilters: ParsedFilter[],
 ): string | null {
   const relTable = allTables.get(rel.name);
   if (!relTable) return null;
 
-  if (rel.columns) {
+  if (!rel.countOnly && rel.columns) {
     const validCols = new Set(relTable.columns.map(c => c.name));
     for (const col of rel.columns) {
       if (!validCols.has(col)) {
@@ -170,18 +230,28 @@ function buildRelationSubquery(
     ? rel.columns.map(c => quoteIdentifier(c)).join(', ')
     : '*';
 
-  const quotedRel  = quoteIdentifier(rel.name);
-  const quotedMain = quoteIdentifier(table.name);
+  const quotedRel    = quoteIdentifier(rel.name);
+  const quotedAlias  = quoteIdentifier(rel.alias ?? rel.name);
+  const quotedMain   = quoteIdentifier(table.name);
+  const extraWhere   = buildEmbeddedWhereExtra(embeddedFilters);
 
   // Many-to-one: current table has FK → related table (e.g. posts.user_id → users.id)
   const manyToOne = table.foreignKeys.find(fk => fk.foreignTable === rel.name);
   if (manyToOne) {
     const localCol   = quoteIdentifier(manyToOne.columnName);
     const foreignCol = quoteIdentifier(manyToOne.foreignColumn);
+    const joinCond   = `${foreignCol} = ${quotedMain}.${localCol}`;
+    if (rel.countOnly) {
+      return (
+        `json_build_array(json_build_object('count', ` +
+        `(SELECT count(*)::int FROM ${quotedRel} WHERE ${joinCond}${extraWhere}))) ` +
+        `AS ${quotedAlias}`
+      );
+    }
     return (
       `(SELECT row_to_json(r) FROM ` +
-      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${foreignCol} = ${quotedMain}.${localCol} LIMIT 1) r) ` +
-      `AS ${quotedRel}`
+      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${joinCond}${extraWhere} LIMIT 1) r) ` +
+      `AS ${quotedAlias}`
     );
   }
 
@@ -190,10 +260,18 @@ function buildRelationSubquery(
   if (oneToMany) {
     const relCol   = quoteIdentifier(oneToMany.columnName);
     const localCol = quoteIdentifier(oneToMany.foreignColumn);
+    const joinCond = `${relCol} = ${quotedMain}.${localCol}`;
+    if (rel.countOnly) {
+      return (
+        `json_build_array(json_build_object('count', ` +
+        `(SELECT count(*)::int FROM ${quotedRel} WHERE ${joinCond}${extraWhere}))) ` +
+        `AS ${quotedAlias}`
+      );
+    }
     return (
       `COALESCE((SELECT json_agg(row_to_json(r)) FROM ` +
-      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${relCol} = ${quotedMain}.${localCol}) r), '[]'::json) ` +
-      `AS ${quotedRel}`
+      `(SELECT ${relColsSql} FROM ${quotedRel} WHERE ${joinCond}${extraWhere}) r), '[]'::json) ` +
+      `AS ${quotedAlias}`
     );
   }
 
@@ -216,7 +294,10 @@ export function buildSelectQuery(
   const relationExprs: string[] = [];
   if (parsed.relations.length > 0 && allTables) {
     for (const rel of parsed.relations) {
-      const expr = buildRelationSubquery(table, rel, allTables);
+      const relFilters = (parsed.embeddedFilters as EmbeddedFilter[])
+        .filter(ef => ef.relation === rel.name)
+        .map(ef => ef.filter);
+      const expr = buildRelationSubquery(table, rel, allTables, relFilters);
       if (expr) relationExprs.push(expr);
     }
   }

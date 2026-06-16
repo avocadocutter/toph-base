@@ -17,6 +17,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Baseline schema privileges. Re-applied on every startup so DBs created
+-- before these grants existed get repaired idempotently.
+GRANT USAGE ON SCHEMA auth       TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA public     TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
+GRANT CREATE ON SCHEMA public    TO authenticated, service_role;
+
 CREATE TABLE IF NOT EXISTS auth.users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email         TEXT NOT NULL UNIQUE,
@@ -45,11 +52,16 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx   ON auth.sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON auth.sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON auth.sessions(expires_at);
 
+-- Table-level grants for auth.* — idempotent, re-applied on every startup.
+GRANT SELECT                      ON auth.users    TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users    TO authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sessions TO service_role;
+
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.sub', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'sub'
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'sub'
     )::uuid
   $$;
 
@@ -57,7 +69,7 @@ CREATE OR REPLACE FUNCTION auth.role() RETURNS text
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.role', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'role',
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'role',
       'anon'
     )
   $$;
@@ -66,7 +78,7 @@ CREATE OR REPLACE FUNCTION auth.email() RETURNS text
   LANGUAGE sql STABLE AS $$
     SELECT COALESCE(
       NULLIF(current_setting('request.jwt.claim.email', true), ''),
-      current_setting('request.jwt.claims', true)::jsonb->>'email'
+      NULLIF(current_setting('request.jwt.claims', true), '')::jsonb->>'email'
     )
   $$;
 
@@ -317,6 +329,30 @@ CREATE TABLE IF NOT EXISTS storage.objects (
 );
 
 CREATE INDEX IF NOT EXISTS objects_bucket_id_name_idx ON storage.objects (bucket_id, name);
+
+CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _parts text[];
+BEGIN
+  SELECT string_to_array(name, '/') INTO _parts;
+  RETURN _parts[1:array_length(_parts, 1) - 1];
+END $$;
+
+CREATE OR REPLACE FUNCTION storage.filename(name text) RETURNS text
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _parts text[];
+BEGIN
+  SELECT string_to_array(name, '/') INTO _parts;
+  RETURN _parts[array_length(_parts, 1)];
+END $$;
+
+CREATE OR REPLACE FUNCTION storage.extension(name text) RETURNS text
+  LANGUAGE plpgsql STABLE AS $$
+DECLARE _filename text;
+BEGIN
+  SELECT storage.filename(name) INTO _filename;
+  RETURN reverse(split_part(reverse(_filename), '.', 1));
+END $$;
 `;
 
 export async function runBootstrapMigrations(store: PGliteStore): Promise<void> {

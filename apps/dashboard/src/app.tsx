@@ -17,6 +17,7 @@ import { DocsPage } from './pages/docs';
 import { OverviewPage } from './pages/overview';
 import { StoragePage } from './pages/storage';
 import { StorageBucketPage } from './pages/storage-bucket';
+import { FunctionsPage } from './pages/functions';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +82,7 @@ export function App() {
             <Route path="migrations/new" element={<MigrationNewPage />} />
             <Route path="storage" element={<StoragePage />} />
             <Route path="storage/:bucket" element={<StorageBucketPage />} />
+            <Route path="functions" element={<FunctionsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="policies" element={<PoliciesPage />} />
             <Route path="settings" element={<SettingsPage />} />

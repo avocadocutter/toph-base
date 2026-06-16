@@ -11,7 +11,10 @@ coverage/
 .vite/
 .mcp.json
 .claude/
+**/.claude/
 NOTES.txt
 .agents/
 skills-lock.json
 .tophbase/
+*.tsbuildinfo
+**/dashboard/assets/

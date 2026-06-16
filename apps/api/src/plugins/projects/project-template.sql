@@ -14,7 +14,7 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb
   LANGUAGE sql STABLE
   AS $$
-    SELECT COALESCE(current_setting('request.jwt.claims', true)::jsonb, '{}'::jsonb)
+    SELECT COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb)
   $$;
 
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid

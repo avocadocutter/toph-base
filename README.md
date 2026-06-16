@@ -191,6 +191,7 @@ For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + sto
 | All standard pg extensions (`pgcrypto`, `pgvector`, `pg_trgm`, `citext`, `uuid-ossp`, `hstore`, `ltree`, `unaccent`, `pg_hashids`, `pg_uuidv7`, `pgtap`, `age`, `pg_ivm`, etc.) | ✅ Identical | ~38 extensions loaded via PGlite |
 | `pgjwt` | ✅ Identical | Reimplemented in SQL via pgcrypto |
 | Storage (buckets, upload/download, signed URLs, copy/move) | ✅ Identical | Local filesystem backend |
+| Storage — per-bucket CORS rules | ⚠️ Not implemented | Global `CORS_ALLOWED_ORIGINS` applies to all routes; per-bucket CORS configuration is not supported |
 | `vault` | ⚠️ Simplified | Same API — secrets stored as plaintext locally, no encryption |
 | `pg_cron` | ⚠️ Simplified | Same API — jobs run via a Node.js bridge, stops when server stops |
 | `pgsodium` | ⚠️ Simplified | Delegates to pgcrypto — basic crypto works, key derivation differs |

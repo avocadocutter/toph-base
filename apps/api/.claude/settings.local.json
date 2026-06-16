@@ -1,9 +1,0 @@
-{
-  "disabledMcpjsonServers": [
-    "postgres",
-    "postgres_toph",
-    "postgres_edu_claw",
-    "postgres_skill_pal",
-    "postgres_skill_pal_creator"
-  ]
-}

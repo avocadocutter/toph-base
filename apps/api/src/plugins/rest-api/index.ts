@@ -40,25 +40,10 @@ export type RestHook = (request: FastifyRequest, reply: FastifyReply) => Promise
  */
 export interface RestApiPluginOptions {
   /**
-   * Resolves project + auth from the `apikey` request header.
-   * Used by Supabase-compatible routes (`/rest/v1/:table`).
-   * Must set `request.project`, `request.projectDb`, and `request.jwtPayload`.
+   * Single hook that resolves the project and authenticates the user.
+   * Must set `request.project`, `request.projectDb`, and optionally `request.jwtPayload`.
    */
-  resolveFromApikey: RestHook;
-
-  /**
-   * Resolves project from URL params (`/project/:projectRef/...`) or
-   * the request subdomain. Used by project-scoped admin routes.
-   * Must set `request.project` and `request.projectDb`.
-   */
-  resolveProject: RestHook;
-
-  /**
-   * Authenticates the request user via Bearer JWT.
-   * Runs after `resolveProject` on project-scoped routes.
-   * Must set `request.jwtPayload` on success.
-   */
-  authHook: RestHook;
+  resolveRequest: RestHook;
 }
 
 // ── Prefer header parsing ─────────────────────────────────────────────────────
@@ -156,13 +141,13 @@ async function handleGet(request: FastifyRequest, reply: FastifyReply) {
   if (wantCount) {
     const countQuery = buildCountQuery(table, parsed);
     const [data, countResult] = await Promise.all([
-      executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values),
-      executeWithRlsContext(projectDb, request.jwtPayload, countQuery.text, countQuery.values),
+      executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values, request.userRole),
+      executeWithRlsContext(projectDb, request.jwtPayload, countQuery.text, countQuery.values, request.userRole),
     ]);
     rows = data.rows;
     total = (countResult.rows[0]?.count as number | undefined) ?? 0;
   } else {
-    const data = await executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values);
+    const data = await executeWithRlsContext(projectDb, request.jwtPayload, selectQuery.text, selectQuery.values, request.userRole);
     rows = data.rows;
   }
 
@@ -198,7 +183,7 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply) {
     ? buildUpsertQuery(table, rows, prefer.resolution === 'ignore-duplicates', parsed.onConflict)
     : buildInsertQuery(table, rows);
 
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -225,7 +210,7 @@ async function handlePatch(request: FastifyRequest, reply: FastifyReply) {
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
   const query = buildUpdateQuery(table, body, parsed.filters, parsed.orFilters);
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -247,7 +232,7 @@ async function handleDelete(request: FastifyRequest, reply: FastifyReply) {
 
   const parsed = parseQueryParams(request.query as Record<string, string>);
   const query = buildDeleteQuery(table, parsed.filters, parsed.orFilters);
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, query.text, query.values, request.userRole);
 
   if (prefer.return === 'minimal') {
     return reply.status(204).send();
@@ -280,9 +265,19 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
     queryValues = args.map(([_, v]) => v);
   }
 
-  const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues);
+  const result = await executeWithRlsContext(projectDb, request.jwtPayload, queryText, queryValues, request.userRole);
 
   if (prefer.return === 'minimal') return reply.status(204).send();
+
+  // Unwrap scalar return: if the result is a single row with a single column named
+  // after the function, return the bare value — matching PostgREST behaviour.
+  if (result.rows.length === 1) {
+    const keys = Object.keys(result.rows[0]);
+    if (keys.length === 1 && keys[0] === fnName) {
+      return reply.header('Content-Type', 'application/json').send(JSON.stringify(result.rows[0][fnName]));
+    }
+  }
+
   if (isSingularRequest(request)) return sendSingular(reply, result.rows, 200, prefer.missing === 'default');
   return reply.send(result.rows);
 }
@@ -290,13 +285,10 @@ async function handleRpc(request: FastifyRequest, reply: FastifyReply) {
 // ── Plugin registration ───────────────────────────────────────────────────────
 
 const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, opts) => {
-  const { resolveFromApikey, resolveProject, authHook } = opts;
+  const { resolveRequest } = opts;
 
-  // Emit Supabase JS client-compatible flat error format so @supabase/postgrest-js can parse
-  // error.code / error.message / error.details / error.hint on every error response.
   fastify.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
-      // PGRST116 and similar errors pass { details, hint } as the AppError.details object
       const extra = error.details as { details?: unknown; hint?: unknown } | undefined;
       return reply.status(error.statusCode).send({
         code: error.code,
@@ -313,6 +305,23 @@ const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, 
         hint: null,
       });
     }
+    // Surface Postgres errors with a sane HTTP status instead of a generic 500.
+    // SQLSTATE codes: https://www.postgresql.org/docs/current/errcodes-appendix.html
+    const pgCode = (error as { code?: string }).code;
+    if (typeof pgCode === 'string' && /^[0-9A-Z]{5}$/.test(pgCode)) {
+      const status =
+        pgCode === '42501' ? 403 :                                  // insufficient_privilege
+        pgCode === '42P01' || pgCode === '42883' ? 404 :            // undefined_table / undefined_function
+        pgCode.startsWith('23') ? 409 :                             // integrity_constraint_violation
+        pgCode.startsWith('22') || pgCode.startsWith('42') ? 400 :  // data_exception / syntax_error_or_access_rule_violation
+        500;
+      return reply.status(status).send({
+        code: pgCode,
+        message: (error as Error).message,
+        details: null,
+        hint: null,
+      });
+    }
     request.log.error(error);
     return reply.status(500).send({
       code: 'PGRST',
@@ -322,23 +331,17 @@ const restApiPlugin: FastifyPluginAsync<RestApiPluginOptions> = async (fastify, 
     });
   });
 
-  // ── Supabase-compatible routes ───────────────────────────────────────────
-  // Auth and project are resolved from the `apikey` request header.
-  // The Supabase JS client hits these: {project-ref}.host/rest/v1/{table}
-  fastify.get('/rest/v1/:table',         { preHandler: [resolveFromApikey] }, handleGet);
-  fastify.post('/rest/v1/:table',        { preHandler: [resolveFromApikey] }, handlePost);
-  fastify.patch('/rest/v1/:table',       { preHandler: [resolveFromApikey] }, handlePatch);
-  fastify.delete('/rest/v1/:table',      { preHandler: [resolveFromApikey] }, handleDelete);
-  fastify.post('/rest/v1/rpc/:fn',       { preHandler: [resolveFromApikey] }, handleRpc);
+  fastify.get('/rest/v1/:table',         { preHandler: [resolveRequest] }, handleGet);
+  fastify.post('/rest/v1/:table',        { preHandler: [resolveRequest] }, handlePost);
+  fastify.patch('/rest/v1/:table',       { preHandler: [resolveRequest] }, handlePatch);
+  fastify.delete('/rest/v1/:table',      { preHandler: [resolveRequest] }, handleDelete);
+  fastify.post('/rest/v1/rpc/:fn',       { preHandler: [resolveRequest] }, handleRpc);
 
-  // ── Project-scoped routes ────────────────────────────────────────────────
-  // Project resolved from URL param; auth via Bearer JWT.
-  // Useful for server-side access and admin tooling.
-  fastify.get('/project/:projectRef/rest/v1/:table',      { preHandler: [resolveProject, authHook] }, handleGet);
-  fastify.post('/project/:projectRef/rest/v1/:table',     { preHandler: [resolveProject, authHook] }, handlePost);
-  fastify.patch('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveProject, authHook] }, handlePatch);
-  fastify.delete('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveProject, authHook] }, handleDelete);
-  fastify.post('/project/:projectRef/rest/v1/rpc/:fn',    { preHandler: [resolveProject, authHook] }, handleRpc);
+  fastify.get('/project/:projectRef/rest/v1/:table',      { preHandler: [resolveRequest] }, handleGet);
+  fastify.post('/project/:projectRef/rest/v1/:table',     { preHandler: [resolveRequest] }, handlePost);
+  fastify.patch('/project/:projectRef/rest/v1/:table',    { preHandler: [resolveRequest] }, handlePatch);
+  fastify.delete('/project/:projectRef/rest/v1/:table',   { preHandler: [resolveRequest] }, handleDelete);
+  fastify.post('/project/:projectRef/rest/v1/rpc/:fn',    { preHandler: [resolveRequest] }, handleRpc);
 };
 
 export default restApiPlugin;

@@ -61,9 +61,9 @@ let _secretKey: string | null = null;
 
 async function getSecretKey(): Promise<string> {
   if (_secretKey) return _secretKey;
-  const res = await fetch('/tophbase/status');
-  const status = await res.json() as { secretKey: string };
-  _secretKey = status.secretKey;
+  const res = await fetch('/tophbase/secret-key');
+  const body = await res.json() as { secretKey: string };
+  _secretKey = body.secretKey;
   return _secretKey;
 }
 

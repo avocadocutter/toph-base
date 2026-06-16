@@ -359,6 +359,7 @@ const storagePlugin: FastifyPluginAsync<StoragePluginOptions> = async (fastify, 
     const db = request.projectDb!;
     const { rows } = await db.query<{ public: boolean }>('SELECT public FROM storage.buckets WHERE id = $1', [bucket]);
     if (!rows.length || !rows[0].public) return storageError(reply, 400, 'invalid_request', 'Bucket is not public');
+    reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     return streamObject(request, reply, bucket, objectName);
   });
 
