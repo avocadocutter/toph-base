@@ -337,7 +337,7 @@ async function cmdGraduateRailway(): Promise<void> {
   if (domainOut.status === 0) {
     try {
       const d = JSON.parse(domainOut.stdout) as { domain?: string };
-      if (d.domain) railwayUrl = `https://${d.domain}`;
+      if (d.domain) railwayUrl = d.domain;
     } catch { /* ignore */ }
   }
 

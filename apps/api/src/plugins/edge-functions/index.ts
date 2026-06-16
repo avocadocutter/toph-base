@@ -181,14 +181,28 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
       rejectReady(new Error(`edge function '${name}' did not start within 30s`));
     }, 30_000);
 
+    const preReadyBuffer: string[] = [];
     let isReady = false;
     proc.stdout!.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       if (!isReady) {
-        if (text.includes('TOPHBASE_READY')) {
+        const lines = text.split('\n');
+        const readyIdx = lines.findIndex(l => l.includes('TOPHBASE_READY'));
+        if (readyIdx !== -1) {
           clearTimeout(timeout);
           isReady = true;
+          for (const line of [...preReadyBuffer, ...lines.slice(0, readyIdx)]) {
+            if (line.trim()) fastify.log.info(`[edge:${name}] ${line}`);
+          }
+          preReadyBuffer.length = 0;
           resolveReady();
+          for (const line of lines.slice(readyIdx + 1)) {
+            if (line.trim()) fastify.log.info(`[edge:${name}] ${line}`);
+          }
+        } else {
+          for (const line of lines) {
+            if (line.trim()) preReadyBuffer.push(line);
+          }
         }
         return;
       }
