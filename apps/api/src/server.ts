@@ -7,7 +7,7 @@ import { buildConfig, type Config } from './config.js';
 import { loadOrCreateProjectConfig, type Dialect } from './lib/project-config.js';
 import { PGliteStore } from './db/pglite-store.js';
 import { runBootstrapMigrations } from './db/migrations.js';
-import { authenticateProject, authenticateProjectOptional } from './hooks/authenticate.js';
+import { authenticateProject } from './hooks/authenticate.js';
 import { resolveLocalProject } from './hooks/resolve-project.js';
 import { AppError } from './lib/errors.js';
 import authPlugin from './plugins/auth/index.js';

@@ -359,14 +359,3 @@ export async function runBootstrapMigrations(store: PGliteStore): Promise<void> 
   await store.exec(SETUP_SQL);
 }
 
-async function runMultiStatement(store: PGliteStore, sql: string): Promise<void> {
-  // Split on semicolons, filter empty, run each statement
-  const statements = sql
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
-  for (const stmt of statements) {
-    await store.query(stmt);
-  }
-}

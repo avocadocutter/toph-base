@@ -19,12 +19,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "src/db/pool-manager.ts",
-    "src/hooks/resolve-project-from-apikey.ts",
-    "src/plugins/admin/index.ts",
-    "src/plugins/api-keys/index.ts",
-    "src/plugins/auth/platform-handlers.ts",
-    "src/plugins/projects/index.ts",
     "src/hooks/authenticate.test.ts",
     "src/plugins/auth/jwt.test.ts"
   ]
