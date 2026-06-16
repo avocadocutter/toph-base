@@ -8,11 +8,8 @@ import { BadRequestError, NotFoundError, AppError } from '../../lib/errors.js';
 import { readFile, writeFile, mkdir, readdir, access, unlink, stat, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { preprocessMigrationSql } from '../../lib/sql-preprocessor.js';
-import { createRequire } from 'node:module';
 import { unzipSync } from 'fflate';
-
-const require = createRequire(import.meta.url);
-const archiver = require('archiver') as typeof import('archiver');
+import archiverLib = require('archiver');
 
 function getMigrationsBase(): string {
   const dir = process.env.TOPHBASE_MIGRATIONS_DIR;
@@ -320,7 +317,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     reply.header('Content-Type', 'application/zip');
     reply.header('Content-Disposition', 'attachment; filename="migrations.zip"');
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = archiverLib('zip', { zlib: { level: 9 } });
     archive.pipe(reply.raw);
 
     for (const file of files) {
@@ -567,7 +564,7 @@ const localAdminPlugin: FastifyPluginAsync = async (fastify) => {
     reply.header('Content-Type', 'application/zip');
     reply.header('Content-Disposition', `attachment; filename="tophbase-backup-${timestamp}.zip"`);
 
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = archiverLib('zip', { zlib: { level: 6 } });
     archive.pipe(reply.raw);
 
     const meta = JSON.stringify({

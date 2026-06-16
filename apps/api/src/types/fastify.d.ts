@@ -1,5 +1,6 @@
 import type { DbPool } from '../db/pglite-store.js';
 import type { Config } from '../config.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 export interface ProjectJwtPayload {

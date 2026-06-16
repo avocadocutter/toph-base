@@ -98,7 +98,7 @@ export class PGliteStore implements DbPool {
   }
 
   connect(): Promise<DbClient> {
-    const store = this;
+    const db = this.db;
     let inTransaction = false;
 
     const client: DbClient = {
@@ -107,20 +107,20 @@ export class PGliteStore implements DbPool {
         const trimmed = text.trim().toUpperCase();
 
         if (trimmed === 'BEGIN') {
-          await store.db.exec('BEGIN');
+          await db.exec('BEGIN');
           inTransaction = true;
           return { rows: [], rowCount: 0 };
         }
 
         if (trimmed === 'COMMIT') {
-          await store.db.exec('COMMIT');
+          await db.exec('COMMIT');
           inTransaction = false;
           return { rows: [], rowCount: 0 };
         }
 
         if (trimmed === 'ROLLBACK') {
           try {
-            await store.db.exec('ROLLBACK');
+            await db.exec('ROLLBACK');
           } catch {
             // Ignore rollback errors (no active transaction)
           }
@@ -128,13 +128,13 @@ export class PGliteStore implements DbPool {
           return { rows: [], rowCount: 0 };
         }
 
-        const result = await store.db.query<T>(text, values as unknown[] | undefined);
+        const result = await db.query<T>(text, values as unknown[] | undefined);
         return { rows: result.rows, rowCount: result.rows.length };
       },
 
       release() {
         if (inTransaction) {
-          store.db.exec('ROLLBACK').catch(() => {});
+          db.exec('ROLLBACK').catch(() => {});
           inTransaction = false;
         }
       },

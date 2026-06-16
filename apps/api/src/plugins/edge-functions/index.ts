@@ -273,7 +273,6 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
         method: request.method,
         headers,
         body: hasBody ? rawBody : undefined,
-        // @ts-ignore — Node 18+ fetch requires duplex for request bodies
         duplex: hasBody ? 'half' : undefined,
         signal: abort.signal,
       });

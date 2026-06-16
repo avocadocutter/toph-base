@@ -150,7 +150,6 @@ async function fetchRlsStatus(db: DbPool, schema: string) {
 
 // PGLite doesn't support LISTEN/NOTIFY. Schema change listening is a no-op.
 // Cache invalidation happens explicitly after mutations (migrations, RLS changes).
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function listenForSchemaChanges(_db: DbPool): Promise<void> {
   // no-op in PGLite local mode
 }

@@ -146,15 +146,8 @@ function splitStatements(sql: string): string[] {
   return statements;
 }
 
-// Extract schema name from a "schema"."table" or schema.table reference
-function extractSchema(ref: string): string | null {
-  const m = ref.match(/^"?(\w+)"?\."?\w+"?$/) ?? ref.match(/^"?(\w+)"?$/);
-  return m ? m[1] : null;
-}
-
 // ── Per-statement rules (mirrors dump_schema.sh sed substitutions) ────────────
 function processStatement(stmt: string): string | null {
-  const upper = stmt.replace(/\s+/g, ' ').trimStart().toUpperCase();
 
   // CREATE / DROP / ALTER TRIGGER on an internal schema → drop
   if (/^(CREATE(\s+OR\s+REPLACE)?\s+TRIGGER|DROP\s+TRIGGER)\b/i.test(stmt)) {

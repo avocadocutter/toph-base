@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import rateLimit from '@fastify/rate-limit';
 import { authenticateProject } from '../../hooks/authenticate.js';
 import { resolveLocalProject } from '../../hooks/resolve-project.js';
 import { BadRequestError } from '../../lib/errors.js';
