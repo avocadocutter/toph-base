@@ -22,7 +22,7 @@
     "pg": "^8.20.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^25.9.3",
     "@types/pg": "^8.20.0",
     "prettier": "~3.x",
     "tsx": "^4.19.0",
