@@ -40,7 +40,7 @@
     "@types/node": "^22.10.0",
     "@typescript-eslint/eslint-plugin": "~8.x",
     "@typescript-eslint/parser": "~8.x",
-    "eslint": "~9.x",
+    "eslint": "~10.x",
     "prettier": "~3.x",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
