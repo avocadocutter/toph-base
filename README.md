@@ -1,35 +1,39 @@
-# toph-base
+# tophbase
 
 [![CI](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml/badge.svg)](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml)
 ![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=claude&logoColor=fff)
 
-A local Supabase-compatible backend for development and MVPs — no Docker, no external database. Not intended for production.
+I love Supabase. But spinning it up locally means Docker, a heavy CLI, and a cloud account before you've written a single line of code. tophbase gives you a Supabase-compatible local backend with one command — free, no Docker, no setup. Build your MVP locally, graduate to Railway, and eventually to real Supabase when you're ready.
 
 Early and evolving — expect rough edges. Issues and PRs are welcome.
-
-**The goal:** build locally with tophbase, then `graduate` to your cloud host when ready. Railway is supported today. `graduate --provider supabase` is on the roadmap — we're aiming for it but need more real-world usage and testing to get there. Try it, break it, open issues.
 
 This project is built with AI assistance ([Claude Code](https://claude.ai/code)). All code is reviewed and understood by the maintainer before merge.
 
 ---
 
-## freshman & graduate
-
-Two commands drive the full lifecycle:
-
-### `tophbase freshman`
-
-Starts a local Supabase-compatible backend inside your project. On first run it prompts for a port, a migrations directory, and whether to expose a Postgres wire protocol server (for connecting with tools like Postico or `psql`). Answers are saved to `.tophbase/config.json`; subsequent runs use the saved config — no prompts.
+## Quick Start
 
 ```bash
-tophbase freshman
-# or override saved config:
-tophbase freshman --port 8000 --migrations-dir ./supabase/migrations
-# enable the Postgres wire protocol server on a specific port:
-tophbase freshman --pg-wire-port 5433
+npx tophbase freshman
 ```
 
-The Postgres wire protocol server is **opt-in**. When enabled, tophbase exposes a TCP listener that speaks the PostgreSQL wire protocol, backed by the embedded PGlite instance. This lets you connect with any standard Postgres client:
+That's it. On first run, tophbase asks you a few questions (port, migrations directory, whether to enable the Postgres wire protocol) and saves your answers. Every subsequent run just starts — no prompts.
+
+Open `http://localhost:<your-port>` to access the dashboard.
+
+---
+
+## Connect with Postico, psql, or any Postgres client
+
+tophbase can expose a Postgres wire protocol server so you can connect with any standard Postgres client — Postico, TablePlus, psql, whatever you use.
+
+Enable it during `freshman` setup, or pass the flag directly:
+
+```bash
+npx tophbase freshman --pg-wire-port 5433
+```
+
+Then connect with:
 
 ```
 Host:     127.0.0.1
@@ -39,154 +43,35 @@ User:     postgres
 Password: (leave blank)
 ```
 
-If you pass `--pg-wire-port`, it overrides the saved value. If no port is saved and the flag is omitted, the interactive prompt asks whether to enable it — and if you answer yes, a port is **required** (no default).
+---
 
-Everything lives in `.tophbase/` in the current directory (data, config). Add `.tophbase/` to your `.gitignore`.
+## Local → Railway → Supabase
 
-### `tophbase graduate`
-
-`graduate` deploys your local tophbase instance to Railway — same behavior as local, just hosted. Pass `--provider railway` to deploy.
+`graduate` deploys your local tophbase instance to a hosted environment — same behavior as local, just hosted.
 
 ```bash
-tophbase graduate --provider railway
+npx tophbase graduate --provider railway
 ```
 
-Currently handles `public` schema base tables (columns, PKs, unique constraints, foreign keys, and row data). Views, functions, triggers, enums, indexes, check constraints, other schemas (`auth`, `storage`, `cron`), and storage files on disk are not yet exported.
+Railway is supported today. `graduate --provider supabase` is on the roadmap — we're aiming for it but need more real-world usage and testing to get there. Try it, break it, open issues.
+
+---
+
+## Other commands
 
 ### `tophbase schema refresh`
 
 Regenerates `SCHEMA.md` from the current local database state — useful as context for AI tools.
 
 ```bash
-tophbase schema refresh
+npx tophbase schema refresh
 ```
-
----
-
-## Architecture
-
-```
-toph-base/
-├── apps/
-│   ├── api/            # Fastify (TypeScript) API — auth, REST, storage, RLS
-│   ├── dashboard/      # React 19 + Vite + TailwindCSS admin SPA
-│   └── orchestrator/   # tophbase CLI (freshman / graduate / schema)
-├── migrations/         # Platform-level SQL migrations
-└── scripts/            # Build utilities
-```
-
-- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
-- **apps/dashboard** — the admin SPA. Create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
-- **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup and `graduate` export, and exposes the `schema` command.
-- **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
-- **scripts/** — build utilities (e.g. bundling the dashboard into the orchestrator package).
-
----
-
-## Prerequisites
-
-- Node.js >= 20
-- pnpm 10 (`npm install -g pnpm@10`)
-- [dotenvx](https://dotenvx.com) (`npm install -g @dotenvx/dotenvx`)
-
-No external database needed — Postgres runs embedded via [PGlite](https://pglite.dev).
-
----
-
-## Quick Start
-
-**1. Clone and install**
-
-```bash
-git clone https://github.com/avocadocutter/toph-base.git
-cd toph-base
-pnpm install
-```
-
-**2. Configure secrets**
-
-```bash
-cp apps/api/.env.example ~/.secrets/toph-base.env
-```
-
-Open `~/.secrets/toph-base.env` and set at minimum `JWT_PLATFORM_SECRET` (32+ chars) and `ADMIN_PASSWORD`.
-
-**3. Start**
-
-```bash
-pnpm dev
-```
-
-- Dashboard: http://localhost:3000
-- API: http://localhost:8000
-
-Log in with your `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-
-**4. Using the CLI in your own project**
-
-Build the CLI first, then run `freshman` inside your project directory:
-
-```bash
-# from the toph-base repo
-pnpm build
-
-# then in your project
-node /path/to/toph-base/apps/orchestrator/dist/cli/tophbase.js freshman
-```
-
----
-
-## Configuration
-
-tophbase uses [dotenvx](https://dotenvx.com) to load secrets from outside the repo. The default secrets file is `~/.secrets/toph-base.env`.
-
-| Variable | Required | Description | Example |
-|---|---|---|---|
-| `JWT_PLATFORM_SECRET` | **Required** | Secret for signing platform JWTs. At least 32 characters. No default. | `a-long-random-secret-string-here` |
-| `ADMIN_PASSWORD` | **Required** | Bootstrap admin password. No default. | `changeme` |
-| `ADMIN_EMAIL` | No | Bootstrap admin email | `admin@toph.local` |
-| `GATEWAY_PORT` | No | Port the API listens on | `8000` |
-| `GATEWAY_HOST` | No | Host the API binds to | `0.0.0.0` |
-| `LOG_LEVEL` | No | Pino log level | `info` |
-| `CORS_ALLOWED_ORIGINS` | No | Comma-separated allowed CORS origins | `http://localhost:3000` |
-| `ACCESS_TOKEN_EXPIRY` | No | Access token TTL in seconds | `3600` |
-| `REFRESH_TOKEN_EXPIRY` | No | Refresh token TTL in seconds | `604800` |
-| `RATE_LIMIT_AUTH` | No | Max auth requests per minute | `5` |
-| `RATE_LIMIT_API` | No | Max API requests per minute | `100` |
-| `ENABLE_SIGNUP` | No | Allow new platform user sign-ups | `true` |
-| `REQUIRE_AUTH_FOR_API` | No | Require authentication on REST API endpoints | `true` |
-| `PUBLIC_API_URL` | No | Base domain for project-specific API URLs. Requires wildcard DNS in production. | `http://localhost:8000` |
-
----
-
-## pnpm Scripts
-
-### Root
-
-| Command | Description |
-|---|---|
-| `pnpm install` | Install dependencies for all apps |
-| `pnpm dev` | Start API and dashboard in parallel |
-| `pnpm build` | Build all apps for production |
-| `pnpm test` | Run the API test suite |
-
-### Per-app
-
-| Command | Description |
-|---|---|
-| `pnpm --filter @tophbase/api dev` | Start the API only (type-check watch) |
-| `pnpm --filter @tophbase/api build` | Build the API |
-| `pnpm --filter @tophbase/api test` | Run API tests |
-| `pnpm --filter @tophbase/api lint` | Lint the API |
-| `pnpm --filter @tophbase/dashboard dev` | Start the dashboard dev server |
-| `pnpm --filter @tophbase/dashboard build` | Build the dashboard |
-| `pnpm --filter @tophbase/dashboard lint` | Lint the dashboard |
 
 ---
 
 ## Supabase Compatibility
 
-Tophbase runs PostgreSQL 17 (via [PGlite](https://pglite.dev)) and is designed to make any Supabase migration apply cleanly locally.
+tophbase runs PostgreSQL 17 (via [PGlite](https://pglite.dev)) and is designed to make any Supabase migration apply cleanly locally.
 
 For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + storage), compatibility is **~95%**. The main gaps are Realtime, OAuth, and Edge Functions.
 
@@ -212,6 +97,49 @@ For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + sto
 | Edge Functions | ⚠️ Partial | Deno-based functions with import map shim; managed via dashboard. Some Deno APIs may differ from Supabase's hosted runtime. |
 
 `CREATE EXTENSION IF NOT EXISTS` for unsupported extensions is stripped by the migration runner — migrations always apply cleanly.
+
+---
+
+## Configuration
+
+tophbase uses [dotenvx](https://dotenvx.com) to load secrets. The default secrets file is `~/.secrets/toph-base.env`.
+
+| Variable | Required | Description | Example |
+|---|---|---|---|
+| `JWT_PLATFORM_SECRET` | **Required** | Secret for signing platform JWTs. At least 32 characters. | `a-long-random-secret-string-here` |
+| `ADMIN_PASSWORD` | **Required** | Bootstrap admin password. | `changeme` |
+| `ADMIN_EMAIL` | No | Bootstrap admin email | `admin@toph.local` |
+| `GATEWAY_PORT` | No | Port the API listens on | `8000` |
+| `GATEWAY_HOST` | No | Host the API binds to | `0.0.0.0` |
+| `LOG_LEVEL` | No | Pino log level | `info` |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated allowed CORS origins | `http://localhost:3000` |
+| `ACCESS_TOKEN_EXPIRY` | No | Access token TTL in seconds | `3600` |
+| `REFRESH_TOKEN_EXPIRY` | No | Refresh token TTL in seconds | `604800` |
+| `RATE_LIMIT_AUTH` | No | Max auth requests per minute | `5` |
+| `RATE_LIMIT_API` | No | Max API requests per minute | `100` |
+| `ENABLE_SIGNUP` | No | Allow new platform user sign-ups | `true` |
+| `REQUIRE_AUTH_FOR_API` | No | Require authentication on REST API endpoints | `true` |
+| `PUBLIC_API_URL` | No | Base domain for project-specific API URLs | `http://localhost:8000` |
+
+---
+
+## Architecture
+
+```
+toph-base/
+├── apps/
+│   ├── api/            # Fastify (TypeScript) API — auth, REST, storage, RLS
+│   ├── dashboard/      # React 19 + Vite + TailwindCSS admin SPA
+│   └── orchestrator/   # tophbase CLI (freshman / graduate / schema)
+├── migrations/         # Platform-level SQL migrations
+└── scripts/            # Build utilities
+```
+
+- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
+- **apps/dashboard** — the admin SPA. Create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
+- **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup and `graduate` export, and exposes the `schema` command.
+- **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
+- **scripts/** — build utilities (e.g. bundling the dashboard into the orchestrator package).
 
 ---
 
