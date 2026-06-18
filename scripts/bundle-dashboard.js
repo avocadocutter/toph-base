@@ -16,3 +16,10 @@ if (!fs.existsSync(src)) {
 fs.rmSync(dest, { recursive: true, force: true });
 fs.cpSync(src, dest, { recursive: true });
 console.log(`Dashboard bundled into apps/orchestrator/dashboard/ (${fs.readdirSync(dest).length} files)`);
+
+// Copy README and LICENSE from monorepo root into the orchestrator package
+// so npm picks them up when publishing.
+const orchDir = path.join(root, 'apps/orchestrator');
+fs.copyFileSync(path.join(root, 'README.md'), path.join(orchDir, 'README.md'));
+fs.copyFileSync(path.join(root, 'LICENSE'), path.join(orchDir, 'LICENSE'));
+console.log('README.md and LICENSE copied into apps/orchestrator/');
