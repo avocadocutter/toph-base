@@ -177,15 +177,13 @@ export async function createServer(): Promise<ServerContext> {
   });
   await fastify.register(rlsPlugin);
 
-  if (config.functions.dir) {
-    await fastify.register(edgeFunctionsPlugin, {
-      functionsDir: config.functions.dir,
-      supabaseUrl: `http://${config.server.host}:${config.server.port}`,
-      publishableKey: config.project.publishableKey,
-      secretKey: config.project.secretKey,
-      secretsPath: path.join(config.project.dataDir, 'secrets.json'),
-    });
-  }
+  await fastify.register(edgeFunctionsPlugin, {
+    functionsDir: config.functions.dir,
+    supabaseUrl: `http://${config.server.host}:${config.server.port}`,
+    publishableKey: config.project.publishableKey,
+    secretKey: config.project.secretKey,
+    secretsPath: path.join(config.project.dataDir, 'secrets.json'),
+  });
 
   startCronBridge(store);
 

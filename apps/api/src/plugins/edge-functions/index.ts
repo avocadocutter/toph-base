@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import net from 'node:net';
 
 export interface EdgeFunctionsOptions {
-  functionsDir: string;
+  functionsDir: string | null;
   supabaseUrl: string;
   publishableKey: string;
   secretKey: string;
@@ -236,6 +236,10 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
   fastify.addContentTypeParser('*', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
 
   const handler = async (request: import('fastify').FastifyRequest<{ Params: { '*': string } }>, reply: import('fastify').FastifyReply) => {
+    if (!functionsDir) {
+      return reply.status(501).send({ error: { code: 'FUNCTIONS_NOT_CONFIGURED', message: 'Edge functions directory is not configured. Run tophbase freshman --functions-dir <path> to enable.' } });
+    }
+
     if (!denoAvailable) {
       return reply.status(501).send({ error: { code: 'DENO_REQUIRED', message: 'Edge functions require Deno. Install it from https://deno.com and restart tophbase.' } });
     }
