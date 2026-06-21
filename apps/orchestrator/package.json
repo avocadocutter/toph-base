@@ -32,6 +32,7 @@
   "scripts": {
     "dev": "tsx src/cli/tophbase.ts freshman",
     "build": "tsc",
+    "prepack": "cp ../../README.md ./README.md",
     "clean": "rm -rf dist",
     "format": "prettier --write src/ --config ../../prettier.config.mjs"
   },

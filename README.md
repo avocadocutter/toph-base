@@ -45,15 +45,25 @@ Password: (leave blank)
 
 ---
 
-## Local → Railway → Supabase
+## Graduate
 
-`graduate` deploys your local tophbase instance to a hosted environment — same behavior as local, just hosted.
+When you're ready to ship, `graduate` moves your project to a hosted provider.
+
+### Railway
 
 ```bash
 npx tophbase graduate --provider railway
 ```
 
-Railway is supported today. `graduate --provider supabase` is on the roadmap — we're aiming for it but need more real-world usage and testing to get there. Try it, break it, open issues.
+Requires the [Railway CLI](https://docs.railway.com/guides/cli) and `railway login`. Creates the project, service, volume, and domain automatically.
+
+### Supabase
+
+```bash
+npx tophbase graduate --provider supabase
+```
+
+Uses the Supabase Management API with a personal access token — no CLI needed. Creates or links a project, applies your migrations, and prints your new env vars.
 
 ---
 
@@ -102,24 +112,26 @@ For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + sto
 
 ## Configuration
 
-tophbase uses [dotenvx](https://dotenvx.com) to load secrets. The default secrets file is `~/.secrets/toph-base.env`.
+Most configuration is handled interactively by `tophbase freshman` and saved to `.tophbase/config.json`. The following env vars can override defaults or are used in advanced setups:
 
-| Variable | Required | Description | Example |
-|---|---|---|---|
-| `JWT_PLATFORM_SECRET` | **Required** | Secret for signing platform JWTs. At least 32 characters. | `a-long-random-secret-string-here` |
-| `ADMIN_PASSWORD` | **Required** | Bootstrap admin password. | `changeme` |
-| `ADMIN_EMAIL` | No | Bootstrap admin email | `admin@toph.local` |
-| `GATEWAY_PORT` | No | Port the API listens on | `8000` |
-| `GATEWAY_HOST` | No | Host the API binds to | `0.0.0.0` |
-| `LOG_LEVEL` | No | Pino log level | `info` |
-| `CORS_ALLOWED_ORIGINS` | No | Comma-separated allowed CORS origins | `http://localhost:3000` |
-| `ACCESS_TOKEN_EXPIRY` | No | Access token TTL in seconds | `3600` |
-| `REFRESH_TOKEN_EXPIRY` | No | Refresh token TTL in seconds | `604800` |
-| `RATE_LIMIT_AUTH` | No | Max auth requests per minute | `5` |
-| `RATE_LIMIT_API` | No | Max API requests per minute | `100` |
-| `ENABLE_SIGNUP` | No | Allow new platform user sign-ups | `true` |
-| `REQUIRE_AUTH_FOR_API` | No | Require authentication on REST API endpoints | `true` |
-| `PUBLIC_API_URL` | No | Base domain for project-specific API URLs | `http://localhost:8000` |
+| Variable | Description | Default |
+|---|---|---|
+| `TOPHBASE_PORT` | Port the server listens on | set by `freshman` |
+| `TOPHBASE_HOST` | Host the server binds to | `127.0.0.1` |
+| `TOPHBASE_DATA_DIR` | Where project data (PGlite, storage, config) is stored | `.tophbase/` in cwd |
+| `TOPHBASE_PROJECT` | Project name | directory name |
+| `TOPHBASE_MIGRATIONS_DIR` | Path to migration SQL files | set by `freshman` |
+| `TOPHBASE_FUNCTIONS_DIR` | Path to edge functions directory | set by `freshman` |
+| `TOPHBASE_JWT_SECRET` | JWT signing secret (auto-generated on first run) | auto |
+| `TOPHBASE_PUBLISHABLE_KEY` | Anon/publishable API key (auto-generated) | auto |
+| `TOPHBASE_SECRET_KEY` | Service role API key (auto-generated) | auto |
+| `TOPHBASE_PUBLIC_URL` | Public-facing URL (used in edge function env) | `http://localhost:<port>` |
+| `LOG_LEVEL` | Pino log level | `info` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins, or `*` | `*` |
+| `REQUIRE_AUTH_FOR_API` | Require a valid JWT on all REST API requests | `false` |
+| `ACCESS_TOKEN_EXPIRY` | Access token TTL in seconds | `3600` |
+| `REFRESH_TOKEN_EXPIRY` | Refresh token TTL in seconds | `604800` |
+| `STORAGE_MAX_FILE_SIZE_BYTES` | Max upload size | `52428800` (50 MB) |
 
 ---
 
@@ -137,7 +149,7 @@ toph-base/
 
 - **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
 - **apps/dashboard** — the admin SPA. Create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
-- **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup and `graduate` export, and exposes the `schema` command.
+- **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup, `graduate` deployment (Railway and Supabase), and the `schema` command.
 - **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
 - **scripts/** — build utilities (e.g. bundling the dashboard into the orchestrator package).
 
