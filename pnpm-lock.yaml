@@ -223,8 +223,8 @@ importers:
         specifier: ^8.1.0
         version: 8.3.0
       '@tophbase/api':
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.1.2
+        version: 0.1.2
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -1773,8 +1773,8 @@ packages:
     resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
     engines: {node: '>=12'}
 
-  '@tophbase/api@0.1.1':
-    resolution: {integrity: sha512-K69CumHX6PuaCvGnTluDX4uCkhdCBlWLsDhXCCCCKBa3nR55ffPg+slMpVS2RarGcyS5NlLAEmqcB5FetXztTA==}
+  '@tophbase/api@0.1.2':
+    resolution: {integrity: sha512-hu8/pizDfhqqkMbctPyEgRjRsPYB0eoPcFDiQg1qntl2LqgFUqcH35QTlkOpl0U62dXjg/dYYsp6lDS/QOJTcA==}
 
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
@@ -4752,7 +4752,7 @@ snapshots:
 
   '@tanstack/table-core@8.21.3': {}
 
-  '@tophbase/api@0.1.1':
+  '@tophbase/api@0.1.2':
     dependencies:
       '@electric-sql/pglite': 0.4.5
       '@fastify/cors': 11.2.0
