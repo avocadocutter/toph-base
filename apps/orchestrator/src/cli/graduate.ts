@@ -33,6 +33,11 @@ export async function cmdGraduate(args: string[]): Promise<void> {
     return;
   }
 
+  if (provider === 'supabase') {
+    await cmdGraduateSupabase();
+    return;
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log(`\nGraduating to ${provider}.`);
   console.log(`Where to find your connection string: ${PROVIDER_HINTS[provider]}\n`);
@@ -92,6 +97,200 @@ export async function cmdGraduate(args: string[]): Promise<void> {
   }
 
   console.log('\nGraduation complete!');
+}
+
+// ── Supabase deploy ───────────────────────────────────────────────────────────
+
+const SUPABASE_API = 'https://api.supabase.com';
+
+interface SupabaseProject { id: string; name: string; region: string; status: string }
+interface SupabaseOrg    { id: string; name: string }
+interface SupabaseApiKey { name: string; api_key: string }
+
+async function supabaseFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${SUPABASE_API}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { message?: string };
+    throw new Error(body.message ?? `Supabase API ${res.status}: ${path}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function cmdGraduateSupabase(): Promise<void> {
+  const fs = (await import('node:fs/promises')).default;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  console.log('\nGraduating to Supabase.\n');
+  console.log('  Get a personal access token: https://supabase.com/dashboard/account/tokens\n');
+
+  // 1. Access token — read from saved config or prompt
+  let localConfig: Record<string, unknown> = {};
+  try { localConfig = JSON.parse(await fs.readFile('.tophbase/config.json', 'utf8')) as Record<string, unknown>; } catch { /* ok */ }
+
+  let token = typeof localConfig.supabaseToken === 'string' ? localConfig.supabaseToken : '';
+  if (token) {
+    const reuse = (await rl.question('  Access token (saved) — use it? [Y/n]: ')).trim().toLowerCase();
+    if (reuse === 'n') token = '';
+  }
+  if (!token) {
+    token = (await rl.question('  Access token: ')).trim();
+    if (!token) { console.error('  Access token is required.'); process.exit(1); }
+  }
+
+  // Verify token + greet
+  let projects: SupabaseProject[];
+  try {
+    projects = await supabaseFetch<SupabaseProject[]>('/v1/projects', token);
+  } catch (err) {
+    console.error(`\n  ${(err as Error).message}`);
+    console.error('  Is the token valid? Generate one at https://supabase.com/dashboard/account/tokens');
+    process.exit(1);
+  }
+
+  // Save token after successful auth
+  await fs.mkdir('.tophbase', { recursive: true });
+  await fs.writeFile('.tophbase/config.json', JSON.stringify({ ...localConfig, supabaseToken: token }, null, 2), 'utf8');
+
+  // 2. Pick existing project or create new
+  let projectRef: string;
+  let dbPass: string;
+
+  if (projects.length === 0) {
+    console.log('\n  No projects found — let\'s create one.\n');
+    ({ projectRef, dbPass } = await createSupabaseProject(rl, token));
+  } else {
+    console.log('\n  Your Supabase projects:\n');
+    projects.forEach((p, i) => console.log(`    ${i + 1}) ${p.name}  (${p.region})`));
+    console.log(`    ${projects.length + 1}) Create a new project\n`);
+
+    const raw = (await rl.question('  Select: ')).trim();
+    const choice = parseInt(raw, 10);
+
+    if (choice === projects.length + 1) {
+      ({ projectRef, dbPass } = await createSupabaseProject(rl, token));
+    } else if (choice >= 1 && choice <= projects.length) {
+      projectRef = projects[choice - 1].id;
+      console.log('\n  DB password needed to connect.');
+      console.log('  Find or reset it: Supabase dashboard → Settings → Database → Reset database password\n');
+      dbPass = (await rl.question('  DB password: ')).trim();
+      if (!dbPass) { console.error('  Password is required.'); process.exit(1); }
+    } else {
+      console.error('  Invalid selection.');
+      process.exit(1);
+    }
+  }
+
+  rl.close();
+
+  // 3. Fetch API keys
+  console.log('\n  Fetching API keys...');
+  const keys = await supabaseFetch<SupabaseApiKey[]>(`/v1/projects/${projectRef}/api-keys`, token);
+  const anonKey    = keys.find(k => k.name === 'anon')?.api_key ?? '';
+  const serviceKey = keys.find(k => k.name === 'service_role')?.api_key ?? '';
+
+  // 4. Apply migrations
+  const migrationsDir = typeof localConfig.migrationsDir === 'string'
+    ? localConfig.migrationsDir
+    : path.resolve('./supabase/migrations');
+
+  let migrationFiles: string[] = [];
+  try {
+    migrationFiles = (await fs.readdir(migrationsDir)).filter(f => f.endsWith('.sql')).sort();
+  } catch { /* no dir */ }
+
+  if (migrationFiles.length === 0) {
+    console.log('  No migration files found — skipping schema setup.');
+  } else {
+    const connStr = `postgresql://postgres:${encodeURIComponent(dbPass)}@db.${projectRef}.supabase.co:5432/postgres`;
+    const { Client } = await import('pg');
+    const client = new Client({ connectionString: connStr, ssl: { rejectUnauthorized: false } });
+    await client.connect();
+    try {
+      console.log(`  Applying ${migrationFiles.length} migration(s)...`);
+      for (const file of migrationFiles) {
+        process.stdout.write(`    ${file}... `);
+        const sql = await fs.readFile(path.join(migrationsDir, file), 'utf-8');
+        try { await client.query(sql); console.log('done'); }
+        catch (err) { console.log('failed'); throw err; }
+      }
+    } finally {
+      await client.end();
+    }
+  }
+
+  // 5. Done
+  const supabaseUrl = `https://${projectRef}.supabase.co`;
+  console.log('\n  Graduation complete!\n');
+  console.log('  Update your env vars:\n');
+  console.log(`    SUPABASE_URL=${supabaseUrl}`);
+  console.log(`    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anonKey}`);
+  console.log(`    SUPABASE_SECRET_KEY=${serviceKey}`);
+  console.log('');
+}
+
+const SUPABASE_REGIONS = [
+  'us-east-1', 'us-west-1', 'ca-central-1',
+  'eu-west-1', 'eu-west-2', 'eu-central-1',
+  'ap-southeast-1', 'ap-northeast-1', 'ap-southeast-2',
+];
+
+async function createSupabaseProject(
+  rl: import('node:readline/promises').Interface,
+  token: string,
+): Promise<{ projectRef: string; dbPass: string }> {
+  // Pick org
+  const orgs = await supabaseFetch<SupabaseOrg[]>('/v1/organizations', token);
+  if (orgs.length === 0) {
+    console.error('  No organizations found. Create one at https://supabase.com/dashboard');
+    process.exit(1);
+  }
+
+  let orgId: string;
+  if (orgs.length === 1) {
+    orgId = orgs[0].id;
+    console.log(`  Organization: ${orgs[0].name}`);
+  } else {
+    console.log('  Organizations:\n');
+    orgs.forEach((o, i) => console.log(`    ${i + 1}) ${o.name}`));
+    const pick = parseInt((await rl.question('\n  Select organization: ')).trim(), 10);
+    if (pick < 1 || pick > orgs.length) { console.error('  Invalid selection.'); process.exit(1); }
+    orgId = orgs[pick - 1].id;
+  }
+
+  const defaultName = path.basename(process.cwd());
+  const name = (await rl.question(`\n  Project name [${defaultName}]: `)).trim() || defaultName;
+
+  console.log('\n  Regions:\n');
+  SUPABASE_REGIONS.forEach((r, i) => console.log(`    ${i + 1}) ${r}`));
+  const regionRaw = (await rl.question('\n  Select region [1]: ')).trim() || '1';
+  const regionIdx = parseInt(regionRaw, 10) - 1;
+  const region = SUPABASE_REGIONS[regionIdx] ?? SUPABASE_REGIONS[0];
+
+  const dbPass = (await rl.question('\n  Set a database password: ')).trim();
+  if (!dbPass) { console.error('  Password is required.'); process.exit(1); }
+
+  console.log('\n  Creating project...');
+  const created = await supabaseFetch<{ id: string }>('/v1/projects', token, {
+    method: 'POST',
+    body: JSON.stringify({ name, organization_id: orgId, db_pass: dbPass, region, plan: 'free' }),
+  });
+  const projectRef = created.id;
+
+  // Poll until ready
+  process.stdout.write('  Waiting for project to be ready');
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+      const p = await supabaseFetch<SupabaseProject>(`/v1/projects/${projectRef}`, token);
+      process.stdout.write('.');
+      if (p.status === 'ACTIVE_HEALTHY') { console.log(' ready!\n'); break; }
+    } catch { /* still provisioning */ }
+  }
+
+  return { projectRef, dbPass };
 }
 
 // ── Railway deploy ────────────────────────────────────────────────────────────
