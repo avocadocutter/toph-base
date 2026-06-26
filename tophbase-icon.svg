@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background -->
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+
+  <!-- Database cylinder top ellipse -->
+  <ellipse cx="32" cy="18" rx="16" ry="5" fill="#1e8c6e"/>
+
+  <!-- Database cylinder body -->
+  <rect x="16" y="18" width="32" height="26" fill="#166a53"/>
+
+  <!-- Database cylinder bottom ellipse -->
+  <ellipse cx="32" cy="44" rx="16" ry="5" fill="#1e8c6e"/>
+
+  <!-- Horizontal lines suggesting DB layers -->
+  <ellipse cx="32" cy="26" rx="16" ry="5" fill="none" stroke="#1e8c6e" stroke-width="1.2" opacity="0.6"/>
+  <ellipse cx="32" cy="34" rx="16" ry="5" fill="none" stroke="#1e8c6e" stroke-width="1.2" opacity="0.6"/>
+
+  <!-- Lightning bolt "T" hybrid — white, centered -->
+  <path d="M35 19.5 L28 31 L32.5 31 L29 44.5 L37 30 L32.5 30 L36.5 19.5 Z" fill="white" opacity="0.95"/>
+</svg>
