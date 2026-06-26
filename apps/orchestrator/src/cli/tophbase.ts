@@ -67,6 +67,7 @@ async function cmdFreshman(args: string[]) {
 
   const flagPort = argValue(args, '--port');
   const flagMigrations = argValue(args, '--migrations-dir');
+  const interactive = process.stdin.isTTY === true;
 
   const saved = await readLocalConfig();
   const isFirstRun = !saved.port && !flagPort;
@@ -111,7 +112,7 @@ async function cmdFreshman(args: string[]) {
     if (isNaN(pgWirePort)) { console.error('tophbase freshman: --pg-wire-port must be a number'); process.exit(1); }
   } else if (saved.pgWirePort) {
     pgWirePort = saved.pgWirePort;
-  } else {
+  } else if (interactive) {
     const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
     const enable = await prompt(rl, '  Enable Postgres wire protocol? [y/N]: ');
     if (enable.trim().toLowerCase() === 'y') {
@@ -138,7 +139,7 @@ async function cmdFreshman(args: string[]) {
     functionsDir = path.resolve(flagFunctionsDir);
   } else if (saved.functionsDir) {
     functionsDir = saved.functionsDir;
-  } else {
+  } else if (interactive) {
     const suggested = path.resolve('./supabase/functions');
     const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
     const answer = await prompt(rl, `  Edge functions dir [${suggested}]: `);
@@ -154,7 +155,7 @@ async function cmdFreshman(args: string[]) {
     nodeFunctionsDir = path.resolve(flagNodeFunctionsDir);
   } else if (saved.nodeFunctionsDir) {
     nodeFunctionsDir = saved.nodeFunctionsDir;
-  } else {
+  } else if (interactive) {
     const suggested = path.resolve('./supabase/node-functions');
     const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
     const answer = await prompt(rl, `  Node functions dir [${suggested}]: `);
