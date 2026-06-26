@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "TOPHBASE_HOST=0.0.0.0 node apps/orchestrator/dist/cli/tophbase.js freshman --port $PORT --migrations-dir /app/migrations"
+startCommand = "node apps/orchestrator/dist/cli/tophbase.js freshman --port $PORT --migrations-dir /app/migrations"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
