@@ -36,6 +36,7 @@ interface LocalConfig {
   migrationsDir: string;
   pgWirePort?: number;
   functionsDir?: string;
+  nodeFunctionsDir?: string;
 }
 
 async function readLocalConfig(): Promise<Partial<LocalConfig>> {
@@ -145,17 +146,34 @@ async function cmdFreshman(args: string[]) {
     functionsDir = answer.trim() ? path.resolve(answer.trim()) : suggested;
   }
 
-  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort || flagFunctionsDir || (!saved.functionsDir && functionsDir !== undefined)) {
-    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }), ...(functionsDir !== undefined && { functionsDir }) });
+  // ── Node functions (optional) ─────────────────────────────────────────────
+  const flagNodeFunctionsDir = argValue(args, '--node-functions-dir');
+  let nodeFunctionsDir: string | undefined;
+
+  if (flagNodeFunctionsDir) {
+    nodeFunctionsDir = path.resolve(flagNodeFunctionsDir);
+  } else if (saved.nodeFunctionsDir) {
+    nodeFunctionsDir = saved.nodeFunctionsDir;
+  } else {
+    const suggested = path.resolve('./supabase/node-functions');
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, `  Node functions dir [${suggested}]: `);
+    rl.close();
+    nodeFunctionsDir = answer.trim() ? path.resolve(answer.trim()) : suggested;
+  }
+
+  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort || flagFunctionsDir || flagNodeFunctionsDir || (!saved.functionsDir && functionsDir !== undefined) || (!saved.nodeFunctionsDir && nodeFunctionsDir !== undefined)) {
+    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }), ...(functionsDir !== undefined && { functionsDir }), ...(nodeFunctionsDir !== undefined && { nodeFunctionsDir }) });
     if (isFirstRun) console.log(`  Config saved to ${LOCAL_CONFIG_FILE}`);
   }
 
   console.log('');
-  console.log(`  Data dir:       ${dataDir}`);
-  console.log(`  Port:           ${port}`);
-  console.log(`  Migrations dir: ${migrationsDir}`);
-  if (pgWirePort !== undefined) console.log(`  PG wire port:   ${pgWirePort}`);
-  if (functionsDir !== undefined) console.log(`  Functions dir:  ${functionsDir}`);
+  console.log(`  Data dir:           ${dataDir}`);
+  console.log(`  Port:               ${port}`);
+  console.log(`  Migrations dir:     ${migrationsDir}`);
+  if (pgWirePort !== undefined) console.log(`  PG wire port:       ${pgWirePort}`);
+  if (functionsDir !== undefined) console.log(`  Functions dir:      ${functionsDir}`);
+  if (nodeFunctionsDir !== undefined) console.log(`  Node functions dir: ${nodeFunctionsDir}`);
   console.log('');
 
   process.env.TOPHBASE_DATA_DIR = dataDir;
@@ -164,6 +182,7 @@ async function cmdFreshman(args: string[]) {
   process.env.TOPHBASE_MIGRATIONS_DIR = migrationsDir;
   if (pgWirePort !== undefined) process.env.TOPHBASE_PG_PORT = String(pgWirePort);
   if (functionsDir !== undefined) process.env.TOPHBASE_FUNCTIONS_DIR = functionsDir;
+  if (nodeFunctionsDir !== undefined) process.env.TOPHBASE_NODE_FUNCTIONS_DIR = nodeFunctionsDir;
 
   const secrets = await readLocalSecrets();
   for (const [k, v] of Object.entries(secrets)) process.env[k] = v;
@@ -303,7 +322,8 @@ function printHelp() {
                  --port <port>
                  --migrations-dir <path>
                  --pg-wire-port <port>    Enable Postgres wire protocol on this port (required if enabling)
-                 --functions-dir <path>   Directory containing edge functions (default: ./supabase/functions)
+                 --functions-dir <path>        Directory containing Deno edge functions (default: ./supabase/functions)
+                 --node-functions-dir <path>   Directory containing Node.js functions (default: ./supabase/node-functions)
 
     graduate --provider <provider>   Deploy local data to a cloud Postgres
     schema refresh                   Regenerate SCHEMA.md from current database schema

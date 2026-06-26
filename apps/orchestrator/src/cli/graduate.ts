@@ -381,6 +381,21 @@ async function cmdGraduateRailway(): Promise<void> {
     console.log(`No functions found at ${localFunctionsDir} — skipping`);
   }
 
+  const localNodeFunctionsDir = typeof localConfig.nodeFunctionsDir === 'string'
+    ? localConfig.nodeFunctionsDir
+    : null;
+  const stageNodeFunctionsDir = path.join(stageDir, 'node-functions');
+  let hasNodeFunctions = false;
+  if (localNodeFunctionsDir) {
+    try {
+      await fs.cp(localNodeFunctionsDir, stageNodeFunctionsDir, { recursive: true });
+      hasNodeFunctions = true;
+      console.log(`Copied node functions from ${localNodeFunctionsDir}`);
+    } catch {
+      console.log(`No node functions found at ${localNodeFunctionsDir} — skipping`);
+    }
+  }
+
   // 7. Write Dockerfile + startup script.
   //    The pnpm override redirects @tophbase/api to the local tarball so pnpm never
   //    hits the registry for it. Volume is mounted at /app/.tophbase, which is exactly
@@ -392,13 +407,20 @@ async function cmdGraduateRailway(): Promise<void> {
     pnpm: { overrides: { '@tophbase/api': `file:./${apiTarball}` } },
   };
 
+  const freshmanFlags = [
+    '--port "$PORT"',
+    '--migrations-dir /app/migrations',
+    ...(hasFunctions ? ['--functions-dir /app/functions'] : []),
+    ...(hasNodeFunctions ? ['--node-functions-dir /app/node-functions'] : []),
+  ].join(' ');
+
   await fs.writeFile(
     path.join(stageDir, 'start.sh'),
     [
       '#!/bin/sh',
       // Pass flags directly so freshman skips port/migrations/functions prompts.
       // Pipe a single newline to answer the pg-wire prompt (empty = N = disabled).
-      `printf '\\n' | node_modules/.bin/tophbase freshman --port "$PORT" --migrations-dir /app/migrations${hasFunctions ? ' --functions-dir /app/functions' : ''}`,
+      `printf '\\n' | node_modules/.bin/tophbase freshman ${freshmanFlags}`,
     ].join('\n') + '\n',
     'utf8',
   );
@@ -414,6 +436,7 @@ async function cmdGraduateRailway(): Promise<void> {
       `COPY ${apiTarball} ${orchTarball} start.sh ./`,
       ...(hasMigrations ? ['COPY migrations ./migrations'] : []),
       ...(hasFunctions ? ['COPY functions ./functions'] : []),
+      ...(hasNodeFunctions ? ['COPY node-functions ./node-functions'] : []),
       `RUN echo '${JSON.stringify(stagePkg)}' > package.json`,
       `RUN pnpm add ./${apiTarball} ./${orchTarball}`,
       'RUN chmod +x start.sh',

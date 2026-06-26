@@ -24,6 +24,7 @@ export interface Config {
   features: { requireAuthForApi: boolean };
   storage: { maxFileSizeBytes: number };
   functions: { dir: string | null };
+  nodeFunctions: { dir: string | null };
 }
 
 function defaultDataDir(name: string): string {
@@ -61,6 +62,9 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
     },
     functions: {
       dir: env.TOPHBASE_FUNCTIONS_DIR ?? null,
+    },
+    nodeFunctions: {
+      dir: env.TOPHBASE_NODE_FUNCTIONS_DIR ?? null,
     },
   };
 }
