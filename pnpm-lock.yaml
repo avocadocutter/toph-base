@@ -223,8 +223,8 @@ importers:
         specifier: ^8.1.0
         version: 8.3.0
       '@tophbase/api':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: workspace:*
+        version: link:../api
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -1772,9 +1772,6 @@ packages:
   '@tanstack/table-core@8.21.3':
     resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
     engines: {node: '>=12'}
-
-  '@tophbase/api@0.1.2':
-    resolution: {integrity: sha512-hu8/pizDfhqqkMbctPyEgRjRsPYB0eoPcFDiQg1qntl2LqgFUqcH35QTlkOpl0U62dXjg/dYYsp6lDS/QOJTcA==}
 
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
@@ -4751,29 +4748,6 @@ snapshots:
       react-dom: 19.2.6(react@19.2.6)
 
   '@tanstack/table-core@8.21.3': {}
-
-  '@tophbase/api@0.1.2':
-    dependencies:
-      '@electric-sql/pglite': 0.4.5
-      '@fastify/cors': 11.2.0
-      '@fastify/helmet': 13.0.2
-      '@fastify/multipart': 10.0.0
-      '@fastify/rate-limit': 10.3.0
-      '@fastify/websocket': 11.2.0
-      '@node-rs/argon2': 2.0.2
-      archiver: 7.0.1
-      fastify: 5.8.5
-      fflate: 0.8.3
-      jose: 5.10.0
-      pino: 9.14.0
-      pino-pretty: 13.1.3
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - bare-abort-controller
-      - bare-buffer
-      - bufferutil
-      - react-native-b4a
-      - utf-8-validate
 
   '@tybys/wasm-util@0.10.2':
     dependencies:

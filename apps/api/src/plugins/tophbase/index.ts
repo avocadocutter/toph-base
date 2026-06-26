@@ -16,11 +16,35 @@ export interface TophbaseStatus {
   url: string;
   publishableKey: string;
   functionsDir: string | null;
+  nodeFunctionsDir: string | null;
 }
 
 export interface EdgeFunction {
   name: string;
   url: string;
+}
+
+async function listNodeFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
+  const results: EdgeFunction[] = [];
+  try {
+    const entries = await fs.readdir(functionsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const candidates = ['index.js', 'index.mjs', 'index.ts'];
+        for (const c of candidates) {
+          try {
+            await fs.access(path.join(functionsDir, entry.name, c));
+            results.push({ name: entry.name, url: `${baseUrl}/node-functions/v1/${entry.name}` });
+            break;
+          } catch { /* try next */ }
+        }
+      } else if (/\.(js|mjs|ts)$/.test(entry.name) && !entry.name.startsWith('_')) {
+        const name = entry.name.replace(/\.(js|mjs|ts)$/, '');
+        results.push({ name, url: `${baseUrl}/node-functions/v1/${name}` });
+      }
+    }
+  } catch { /* dir doesn't exist yet */ }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function listFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
@@ -56,7 +80,7 @@ function resolvePublicUrl(port: number): string {
 const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Reply: TophbaseStatus }>('/tophbase/status', async (_req, reply) => {
     reply.header('Cache-Control', 'no-store');
-    const { project, server, functions } = fastify.config;
+    const { project, server, functions, nodeFunctions } = fastify.config;
     reply.send({
       configured: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect != null,
       dialect: (fastify as unknown as { _tophbaseDialect: Dialect | null })._tophbaseDialect ?? null,
@@ -64,6 +88,7 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
       url: resolvePublicUrl(server.port),
       publishableKey: project.publishableKey,
       functionsDir: functions.dir,
+      nodeFunctionsDir: nodeFunctions.dir,
     });
   });
 
@@ -97,6 +122,37 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
     return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Function '${name}' not found` } });
   });
 
+  fastify.get('/tophbase/node-functions', async (_req, reply) => {
+    const { nodeFunctions, server } = fastify.config;
+    const baseUrl = resolvePublicUrl(server.port);
+    const fns = nodeFunctions.dir ? await listNodeFunctions(nodeFunctions.dir, baseUrl) : [];
+    reply.send({ functionsDir: nodeFunctions.dir, functions: fns });
+  });
+
+  fastify.get<{ Params: { name: string } }>('/tophbase/node-functions/:name', async (request, reply) => {
+    const { nodeFunctions } = fastify.config;
+    if (!nodeFunctions.dir) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Node functions not configured' } });
+    }
+    const { name } = request.params;
+    const base = path.resolve(nodeFunctions.dir);
+    const candidates = [
+      path.join(nodeFunctions.dir, name, 'index.js'),
+      path.join(nodeFunctions.dir, name, 'index.mjs'),
+      path.join(nodeFunctions.dir, name, 'index.ts'),
+      path.join(nodeFunctions.dir, name + '.js'),
+      path.join(nodeFunctions.dir, name + '.mjs'),
+      path.join(nodeFunctions.dir, name + '.ts'),
+    ].filter(p => path.resolve(p).startsWith(base + path.sep) || path.resolve(p) === base);
+    for (const filePath of candidates) {
+      try {
+        const source = await fs.readFile(filePath, 'utf8');
+        return reply.send({ name, source, path: filePath });
+      } catch { /* try next */ }
+    }
+    return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Node function '${name}' not found` } });
+  });
+
   // Only same-origin browser requests (and non-browser callers) can reach this.
   // Cross-origin fetches always carry an Origin header; we reject them so that
   // a malicious page cannot steal the service-role JWT.
@@ -118,7 +174,8 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
     const secrets = await loadSecrets(fastify.config.project.dataDir);
     secrets[key] = value;
     await saveSecrets(fastify.config.project.dataDir, secrets);
-    (fastify as unknown as { killEdgeFunctions?: () => void }).killEdgeFunctions?.();
+    (fastify as unknown as { killEdgeFunctions?: () => void; killNodeFunctions?: () => void }).killEdgeFunctions?.();
+    (fastify as unknown as { killNodeFunctions?: () => void }).killNodeFunctions?.();
     reply.send({ ok: true });
   });
 
@@ -127,7 +184,8 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
     const secrets = await loadSecrets(fastify.config.project.dataDir);
     delete secrets[key];
     await saveSecrets(fastify.config.project.dataDir, secrets);
-    (fastify as unknown as { killEdgeFunctions?: () => void }).killEdgeFunctions?.();
+    (fastify as unknown as { killEdgeFunctions?: () => void; killNodeFunctions?: () => void }).killEdgeFunctions?.();
+    (fastify as unknown as { killNodeFunctions?: () => void }).killNodeFunctions?.();
     reply.send({ ok: true });
   });
 

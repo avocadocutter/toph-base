@@ -34,7 +34,7 @@ export async function start(): Promise<void> {
       decorateReply: true,
     });
     fastify.setNotFoundHandler((request, reply) => {
-      const apiPrefixes = ['/rest/', '/auth/', '/realtime/', '/health', '/tophbase/', '/admin/', '/functions/'];
+      const apiPrefixes = ['/rest/', '/auth/', '/realtime/', '/health', '/tophbase/', '/admin/', '/functions/', '/node-functions/'];
       if (apiPrefixes.some(p => request.url.startsWith(p))) {
         reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
       } else {

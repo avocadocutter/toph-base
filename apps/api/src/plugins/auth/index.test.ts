@@ -21,6 +21,7 @@ const stubConfig: Config = {
   features: { requireAuthForApi: false },
   storage: { maxFileSizeBytes: 52_428_800 },
   functions: { dir: null },
+  nodeFunctions: { dir: null },
 };
 
 const stubDb: DbPool = {
