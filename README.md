@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml/badge.svg)](https://github.com/avocadocutter/toph-base/actions/workflows/ci.yml)
 ![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=claude&logoColor=fff)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/tophbase)
 
 I love Supabase. But spinning it up locally means Docker, a heavy CLI, and a cloud account before you've written a single line of code. tophbase gives you a Supabase-compatible local backend with one command — free, no Docker, no setup. Build your MVP locally, graduate to Railway, and eventually to real Supabase when you're ready.
+
+![tophbase dashboard](https://raw.githubusercontent.com/avocadocutter/toph-base/main/screenshot.png)
 
 Early and evolving — expect rough edges. Issues and PRs are welcome.
 
