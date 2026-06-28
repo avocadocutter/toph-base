@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, adminPath } from '@/lib/api-client';
 import type { TableSummary, PaginatedResponse, UserRecord } from '@/types';
-import { Database, Users, Shield, Activity } from 'lucide-react';
+import { Database, Users, Shield } from 'lucide-react';
 
 export function OverviewPage() {
   const tables = useQuery({
@@ -34,11 +34,6 @@ export function OverviewPage() {
       icon: Shield,
       label: 'RLS Enabled',
       value: tables.data?.filter((t) => t.rlsEnabled).length ?? '-',
-    },
-    {
-      icon: Activity,
-      label: 'Database',
-      value: health.data?.status === 'healthy' ? 'Connected' : 'Disconnected',
     },
   ];
 
