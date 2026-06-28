@@ -1,6 +1,6 @@
 {
   "name": "@tophbase/api",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Core API server for tophbase — internal package used by the tophbase CLI.",
   "license": "MIT",
   "keywords": [
