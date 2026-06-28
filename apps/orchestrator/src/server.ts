@@ -102,6 +102,7 @@ export async function start(): Promise<void> {
     tcpServer?.close();
     await pgServer?.stop();
     await fastify.close();
+    await store.end();
     process.exit(0);
   };
   process.once('SIGTERM', shutdown);
