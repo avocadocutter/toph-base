@@ -4,11 +4,11 @@
 ![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?logo=claude&logoColor=fff)
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/tophbase)
 
-I love Supabase. But spinning it up locally means Docker, a heavy CLI, and a cloud account before you've written a single line of code. tophbase gives you a Supabase-compatible local backend with one command — free, no Docker, no setup. Build your MVP locally, graduate to Railway, and eventually to real Supabase when you're ready.
+I love Supabase. But spinning it up locally means Docker, a heavy CLI, and a cloud account before you can do anything. tophbase gives you a Supabase-compatible local backend with one command: no Docker, no setup, free. Build your MVP locally, graduate to Railway, and eventually to real Supabase when you're ready.
 
 ![tophbase dashboard](https://raw.githubusercontent.com/avocadocutter/toph-base/main/screenshot.png)
 
-Early and evolving — expect rough edges. Issues and PRs are welcome.
+Still early. Expect rough edges. Issues and PRs are welcome.
 
 This project is built with AI assistance ([Claude Code](https://claude.ai/code)). All code is reviewed and understood by the maintainer before merge.
 
@@ -20,7 +20,7 @@ This project is built with AI assistance ([Claude Code](https://claude.ai/code))
 npx tophbase freshman
 ```
 
-That's it. On first run, tophbase asks you a few questions (port, migrations directory, whether to enable the Postgres wire protocol) and saves your answers. Every subsequent run just starts — no prompts.
+That's it. On first run, tophbase asks you a few questions (port, migrations directory, whether to enable the Postgres wire protocol) and saves your answers. Every subsequent run just starts, no prompts.
 
 Open `http://localhost:<your-port>` to access the dashboard.
 
@@ -28,7 +28,7 @@ Open `http://localhost:<your-port>` to access the dashboard.
 
 ## Connect with Postico, psql, or any Postgres client
 
-tophbase can expose a Postgres wire protocol server so you can connect with any standard Postgres client — Postico, TablePlus, psql, whatever you use.
+tophbase can expose a Postgres wire protocol server so you can connect with any standard Postgres client: Postico, TablePlus, psql, whatever.
 
 Enable it during `freshman` setup, or pass the flag directly:
 
@@ -50,7 +50,7 @@ Password: (leave blank)
 
 ## Graduate
 
-When you're ready to ship, `graduate` moves your project to a hosted provider.
+`graduate` moves your project to a hosted provider.
 
 ### Railway
 
@@ -66,7 +66,7 @@ Requires the [Railway CLI](https://docs.railway.com/guides/cli) and `railway log
 npx tophbase graduate --provider supabase
 ```
 
-Uses the Supabase Management API with a personal access token — no CLI needed. Creates or links a project, applies your migrations, and prints your new env vars.
+Uses the Supabase Management API with a personal access token. No CLI needed. Creates or links a project, applies your migrations, and prints your new env vars.
 
 ---
 
@@ -74,7 +74,7 @@ Uses the Supabase Management API with a personal access token — no CLI needed.
 
 ### `tophbase schema refresh`
 
-Regenerates `SCHEMA.md` from the current local database state — useful as context for AI tools.
+Regenerates `SCHEMA.md` from the current local database state. Good for AI tool context.
 
 ```bash
 npx tophbase schema refresh
@@ -84,7 +84,7 @@ npx tophbase schema refresh
 
 ## Supabase Compatibility
 
-tophbase runs PostgreSQL 17 (via [PGlite](https://pglite.dev)) and is designed to make any Supabase migration apply cleanly locally.
+tophbase runs PostgreSQL 17 (via [PGlite](https://pglite.dev)). Any Supabase migration should apply cleanly.
 
 For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + storage), compatibility is **~95%**. The main gaps are Realtime, OAuth, and Edge Functions.
 
@@ -106,16 +106,16 @@ For a typical vibe dev app (SQL + REST API + email auth + RLS + extensions + sto
 | `pg_graphql` | ❌ Clear error | Not available in local mode |
 | `plv8`, `pgroonga`, `wrappers` | ❌ Clear error | Not available in local mode |
 | Auth — OAuth, magic link, MFA | ❌ Not implemented | |
-| Realtime | ⚠️ No-op stub | WebSocket endpoint accepts connections and handles heartbeats so `createClient()` doesn't error — no actual event delivery |
+| Realtime | ⚠️ No-op stub | WebSocket endpoint accepts connections and handles heartbeats so `createClient()` doesn't error. No actual events are delivered. |
 | Edge Functions | ⚠️ Partial | Deno-based functions with import map shim; managed via dashboard. Some Deno APIs may differ from Supabase's hosted runtime. |
 
-`CREATE EXTENSION IF NOT EXISTS` for unsupported extensions is stripped by the migration runner — migrations always apply cleanly.
+`CREATE EXTENSION IF NOT EXISTS` for unsupported extensions is stripped by the migration runner, so migrations always apply cleanly.
 
 ---
 
 ## Configuration
 
-Most configuration is handled interactively by `tophbase freshman` and saved to `.tophbase/config.json`. The following env vars can override defaults or are used in advanced setups:
+Most config is handled interactively by `tophbase freshman` and saved to `.tophbase/config.json`. Env vars for overrides:
 
 | Variable | Description | Default |
 |---|---|---|
@@ -150,7 +150,7 @@ toph-base/
 └── scripts/            # Build utilities
 ```
 
-- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process — no external database required. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
+- **apps/api** — the core server. Runs PGlite (embedded Postgres) in-process, no external database needed. Handles JWT auth, per-project RLS, a Supabase-compatible REST API, and storage. Serves the dashboard as static files when built.
 - **apps/dashboard** — the admin SPA. Create and manage projects, run SQL queries, manage API keys, and apply migrations from a browser UI.
 - **apps/orchestrator** — the `tophbase` CLI. Wires the API and dashboard together, handles `freshman` startup, `graduate` deployment (Railway and Supabase), and the `schema` command.
 - **migrations/** — `schema.sql` initializes the platform database. Applied once on a fresh install.
