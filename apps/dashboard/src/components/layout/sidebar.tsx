@@ -14,6 +14,7 @@ import {
   GitBranch,
   HardDrive,
   Zap,
+  ListChecks,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/migrations', icon: GitBranch, label: 'Migrations' },
   { to: '/storage', icon: HardDrive, label: 'Storage' },
   { to: '/functions', icon: Zap, label: 'Functions' },
+  { to: '/jobs', icon: ListChecks, label: 'Jobs' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/policies', icon: Shield, label: 'Policies' },
 ];

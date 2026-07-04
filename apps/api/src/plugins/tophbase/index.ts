@@ -189,6 +189,73 @@ const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
     reply.send({ ok: true });
   });
 
+  const createJobSchema = z.object({
+    function_name: z.string().min(1),
+    runtime: z.enum(['edge', 'node']).default('edge'),
+    payload: z.record(z.unknown()).default({}),
+  });
+
+  fastify.get<{ Querystring: { status?: string; limit?: string } }>('/tophbase/jobs', async (request, reply) => {
+    const { status, limit } = request.query;
+    const max = Math.min(parseInt(limit ?? '50', 10) || 50, 200);
+    const params: unknown[] = [];
+    let where = '';
+    if (status) {
+      params.push(status);
+      where = `WHERE status = $${params.length}`;
+    }
+    params.push(max);
+    const result = await fastify.db.query(
+      `SELECT id, function_name, runtime, payload, status, attempts, error, result, created_at, updated_at
+       FROM public.jobs ${where}
+       ORDER BY created_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+    reply.send({ jobs: result.rows });
+  });
+
+  fastify.post('/tophbase/jobs', async (request, reply) => {
+    const body = createJobSchema.parse(request.body);
+    const { functions, nodeFunctions, server } = fastify.config;
+    const baseUrl = resolvePublicUrl(server.port);
+
+    const dir = body.runtime === 'edge' ? functions.dir : nodeFunctions.dir;
+    if (!dir) {
+      return reply.status(400).send({ error: { code: 'NOT_CONFIGURED', message: `${body.runtime === 'edge' ? 'Edge' : 'Node'} functions are not configured` } });
+    }
+    const available = body.runtime === 'edge' ? await listFunctions(dir, baseUrl) : await listNodeFunctions(dir, baseUrl);
+    if (!available.some(f => f.name === body.function_name)) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `${body.runtime} function '${body.function_name}' not found` } });
+    }
+
+    const result = await fastify.db.query(
+      `INSERT INTO public.jobs (function_name, runtime, payload)
+       VALUES ($1, $2, $3)
+       RETURNING id, function_name, runtime, payload, status, attempts, error, result, created_at, updated_at`,
+      [body.function_name, body.runtime, JSON.stringify(body.payload)],
+    );
+    reply.status(201).send({ job: result.rows[0] });
+  });
+
+  fastify.post<{ Params: { id: string } }>('/tophbase/jobs/:id/retry', async (request, reply) => {
+    const { id } = request.params;
+    const result = await fastify.db.query(
+      `UPDATE public.jobs
+       SET status = 'pending', attempts = 0, error = NULL, updated_at = now()
+       WHERE id = $1 AND status = 'failed'
+       RETURNING id, function_name, runtime, status`,
+      [id],
+    );
+    if (result.rows.length === 0) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Failed job '${id}' not found` } });
+    }
+    // UPDATE doesn't fire the AFTER INSERT notify trigger, so wake the
+    // job-queue worker directly.
+    await fastify.db.query(`SELECT pg_notify('jobs_queue', $1)`, [id]);
+    reply.send({ ok: true, job: result.rows[0] });
+  });
+
   fastify.post('/tophbase/setup', async (request, reply) => {
     const body = setupSchema.parse(request.body);
     const { project } = fastify.config;

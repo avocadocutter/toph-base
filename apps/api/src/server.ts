@@ -20,6 +20,7 @@ import localAdminPlugin from './plugins/local-admin/index.js';
 import storagePlugin from './plugins/storage/index.js';
 import edgeFunctionsPlugin from './plugins/edge-functions/index.js';
 import nodeFunctionsPlugin from './plugins/node-functions/index.js';
+import jobQueuePlugin from './plugins/job-queue/index.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -193,6 +194,8 @@ export async function createServer(): Promise<ServerContext> {
     secretKey: config.project.secretKey,
     secretsPath: path.join(config.project.dataDir, 'secrets.json'),
   });
+
+  await fastify.register(jobQueuePlugin, { store });
 
   startCronBridge(store);
 

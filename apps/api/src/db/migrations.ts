@@ -353,6 +353,42 @@ BEGIN
   SELECT storage.filename(name) INTO _filename;
   RETURN reverse(split_part(reverse(_filename), '.', 1));
 END $$;
+
+-- ── job queue ──────────────────────────────────────────────────────────────
+-- Generic job queue that invokes any Edge Function or Node Function per job.
+-- Rows are inserted via POST /tophbase/jobs (see plugins/tophbase); an
+-- AFTER INSERT trigger does pg_notify so the Node.js worker in server.ts can
+-- dequeue immediately instead of polling.
+
+CREATE TABLE IF NOT EXISTS public.jobs (
+  id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  function_name text        NOT NULL,
+  runtime       text        NOT NULL DEFAULT 'edge' CHECK (runtime IN ('edge', 'node')),
+  payload       jsonb       NOT NULL DEFAULT '{}',
+  status        text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+  attempts      int         NOT NULL DEFAULT 0,
+  error         text,
+  result        jsonb,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS jobs_status_idx ON public.jobs (status, created_at);
+
+CREATE OR REPLACE FUNCTION public.notify_jobs_queue() RETURNS trigger
+  LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_notify('jobs_queue', NEW.id::text);
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS jobs_notify ON public.jobs;
+CREATE TRIGGER jobs_notify
+  AFTER INSERT ON public.jobs
+  FOR EACH ROW EXECUTE FUNCTION public.notify_jobs_queue();
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO service_role;
+GRANT SELECT, INSERT ON public.jobs TO authenticated;
 `;
 
 export async function runBootstrapMigrations(store: PGliteStore): Promise<void> {
