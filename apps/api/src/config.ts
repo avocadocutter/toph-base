@@ -25,6 +25,14 @@ export interface Config {
   storage: { maxFileSizeBytes: number };
   functions: { dir: string | null };
   nodeFunctions: { dir: string | null };
+  admin: {
+    username: string;
+    // Set when the password is stored hashed in config.json.
+    passwordHash: string | null;
+    // Set when TOPHBASE_ADMIN_PASSWORD is provided as an env var (e.g. Railway
+    // variables) — compared with a timing-safe string comparison instead.
+    passwordPlain: string | null;
+  };
 }
 
 function defaultDataDir(name: string): string {
@@ -65,6 +73,11 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
     },
     nodeFunctions: {
       dir: env.TOPHBASE_NODE_FUNCTIONS_DIR ?? null,
+    },
+    admin: {
+      username: env.TOPHBASE_ADMIN_USERNAME ?? projectConfig.adminUsername ?? 'admin',
+      passwordHash: env.TOPHBASE_ADMIN_PASSWORD ? null : (projectConfig.adminPasswordHash ?? null),
+      passwordPlain: env.TOPHBASE_ADMIN_PASSWORD ?? null,
     },
   };
 }

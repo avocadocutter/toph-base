@@ -19,6 +19,7 @@ import { StoragePage } from './pages/storage';
 import { StorageBucketPage } from './pages/storage-bucket';
 import { FunctionsPage } from './pages/functions';
 import { JobsPage } from './pages/jobs';
+import { LoginPage } from './pages/login';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,15 +38,19 @@ interface TophbaseStatus {
   publishableKey: string;
 }
 
-function AppGate({ children }: { children: React.ReactNode }) {
+function AppGate({ children, requireConfigured = true }: { children: React.ReactNode; requireConfigured?: boolean }) {
   const [checked, setChecked] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetch('/tophbase/status')
-      .then(r => r.json() as Promise<TophbaseStatus>)
-      .then((status) => {
-        if (!status.configured) {
+      .then(async (r) => {
+        if (r.status === 401) {
+          navigate('/login', { replace: true });
+          return;
+        }
+        const status = await r.json() as TophbaseStatus;
+        if (requireConfigured && !status.configured) {
           navigate('/setup', { replace: true });
         }
       })
@@ -53,7 +58,7 @@ function AppGate({ children }: { children: React.ReactNode }) {
         // Server not ready yet — stay put
       })
       .finally(() => setChecked(true));
-  }, [navigate]);
+  }, [navigate, requireConfigured]);
 
   if (!checked) return null;
   return <>{children}</>;
@@ -66,7 +71,15 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/setup"
+            element={
+              <AppGate requireConfigured={false}>
+                <SetupPage />
+              </AppGate>
+            }
+          />
           <Route
             path="/"
             element={

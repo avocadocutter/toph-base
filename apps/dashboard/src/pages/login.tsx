@@ -1,38 +1,25 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '@/stores/auth-store';
+import { api } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
 
 export function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const setAuth = useAuthStore((s) => s.setAuth);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
-
     try {
-      const response = await fetch('/platform/auth/signin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || 'Login failed');
-      }
-
-      const data = await response.json();
-      setAuth(data.tokens.accessToken, data.tokens.refreshToken, data.user);
-      navigate('/projects');
+      await api.post('/tophbase/login', { username, password });
+      navigate('/', { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -42,23 +29,22 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm space-y-6 rounded-lg border border-border bg-card p-8">
         <div className="space-y-2 text-center">
-          <h1 className="text-xl font-bold tracking-tight">toph-base</h1>
+          <h1 className="text-xl font-bold tracking-tight">tophbase</h1>
           <p className="text-sm text-muted-foreground">Sign in to the admin dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="email" className="text-xs text-muted-foreground">
-              Email
+            <label htmlFor="username" className="text-xs text-muted-foreground">
+              Username
             </label>
             <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@toph.local"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               required
               autoFocus
+              autoComplete="username"
             />
           </div>
 
@@ -71,12 +57,14 @@ export function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
               required
+              autoComplete="current-password"
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <Button type="submit" className="w-full" disabled={loading || !username || !password}>
             {loading ? 'Signing in...' : 'Sign in'}
           </Button>
         </form>

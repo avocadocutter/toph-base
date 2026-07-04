@@ -327,6 +327,20 @@ async function cmdGraduateRailway(): Promise<void> {
   const projectName = (await rl.question(`  Project name [${defaultName}]: `)).trim() || defaultName;
   rl.close();
 
+  // 3b. Admin credentials — protect the deployed /tophbase/* admin API.
+  let localConfigEarly: Record<string, unknown> = {};
+  try { localConfigEarly = JSON.parse(await fs.readFile('.tophbase/config.json', 'utf8')) as Record<string, unknown>; } catch { /* no local config yet */ }
+  const defaultAdminUsername = typeof localConfigEarly.adminUsername === 'string' ? localConfigEarly.adminUsername : 'admin';
+
+  const rlAdmin = createInterface({ input: process.stdin, output: process.stdout });
+  const adminUsername = (await rlAdmin.question(`  Tophbase admin username [${defaultAdminUsername}]: `)).trim() || defaultAdminUsername;
+  const adminPasswordInput = (await rlAdmin.question('  Tophbase admin password (leave blank to generate one): ')).trim();
+  rlAdmin.close();
+  const adminPassword = adminPasswordInput || (await import('node:crypto')).randomBytes(9).toString('base64url');
+  if (!adminPasswordInput) {
+    console.log(`  Generated admin password: ${adminPassword}`);
+  }
+
   // 4. Staging dir — this is what gets deployed to Railway
   const stageDir = path.resolve('.tophbase', 'railway');
   await fs.mkdir(stageDir, { recursive: true });
@@ -505,6 +519,8 @@ async function cmdGraduateRailway(): Promise<void> {
     const varFlags: string[] = [
       '--variables', 'TOPHBASE_HOST=0.0.0.0',
       '--variables', `TOPHBASE_PROJECT=${projectName}`,
+      '--variables', `TOPHBASE_ADMIN_USERNAME=${adminUsername}`,
+      '--variables', `TOPHBASE_ADMIN_PASSWORD=${adminPassword}`,
     ];
     if (localKeys) {
       varFlags.push('--variables', `TOPHBASE_JWT_SECRET=${localKeys.jwtSecret}`);
@@ -566,6 +582,11 @@ async function cmdGraduateRailway(): Promise<void> {
   console.log('\n  Graduation complete!');
   if (railwayUrl) {
     console.log(`  URL: ${railwayUrl}`);
+  }
+  if (!serviceExists) {
+    console.log(`\n  Tophbase admin username: ${adminUsername}`);
+    console.log(`  Tophbase admin password: ${adminPassword}`);
+    console.log('  (save this — it will not be shown again)');
   }
   if (localKeys) {
     console.log(`\n  Publishable key: ${localKeys.publishableKey}`);

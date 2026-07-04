@@ -10,6 +10,8 @@ export interface ProjectConfig {
   publishableKey: string;
   secretKey: string;
   createdAt: string;
+  adminUsername?: string;
+  adminPasswordHash?: string;
 }
 
 const CONFIG_FILE = 'config.json';

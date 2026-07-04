@@ -22,6 +22,7 @@ const stubConfig: Config = {
   storage: { maxFileSizeBytes: 52_428_800 },
   functions: { dir: null },
   nodeFunctions: { dir: null },
+  admin: { username: 'admin', passwordHash: null, passwordPlain: null },
 };
 
 const stubDb: DbPool = {

@@ -1,6 +1,7 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
+import { api } from '@/lib/api-client';
 import {
   Database,
   Terminal,
@@ -15,6 +16,7 @@ import {
   HardDrive,
   Zap,
   ListChecks,
+  LogOut,
 } from 'lucide-react';
 
 const navItems = [
@@ -36,6 +38,12 @@ const bottomItems = [
 
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUiStore();
+  const navigate = useNavigate();
+
+  const logout = async () => {
+    await api.post('/tophbase/logout').catch(() => {});
+    navigate('/login', { replace: true });
+  };
 
   return (
     <aside
@@ -105,6 +113,17 @@ export function Sidebar() {
             {!sidebarCollapsed && <span>{item.label}</span>}
           </NavLink>
         ))}
+
+        <button
+          onClick={logout}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+            sidebarCollapsed && 'justify-center px-0',
+          )}
+        >
+          <LogOut size={18} />
+          {!sidebarCollapsed && <span>Log out</span>}
+        </button>
       </nav>
 
       <div className="border-t border-border p-3">

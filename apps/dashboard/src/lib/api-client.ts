@@ -20,6 +20,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers,
   });
 
+  if (response.status === 401 && path !== '/tophbase/login' && window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
     throw new ApiError(body.error?.message || `HTTP ${response.status}`, body.error?.details);

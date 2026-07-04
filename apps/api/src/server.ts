@@ -4,7 +4,9 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
 import { buildConfig, type Config } from './config.js';
-import { loadOrCreateProjectConfig, type Dialect } from './lib/project-config.js';
+import { loadOrCreateProjectConfig, saveProjectConfig, type Dialect } from './lib/project-config.js';
+import { hashPassword } from './plugins/auth/password.js';
+import { randomBytes } from 'node:crypto';
 import { PGliteStore } from './db/pglite-store.js';
 import { runBootstrapMigrations } from './db/migrations.js';
 import { authenticateProject } from './hooks/authenticate.js';
@@ -43,6 +45,23 @@ export async function createServer(): Promise<ServerContext> {
 
   await fs.mkdir(dataDir, { recursive: true });
   const projectConfig = await loadOrCreateProjectConfig(dataDir);
+
+  // Guarantee /tophbase/* is never left wide open: if no admin credentials
+  // are configured (config.json field or TOPHBASE_ADMIN_PASSWORD env var),
+  // generate one, persist it, and print it once — it can't be recovered
+  // after this since only the hash is stored.
+  if (!process.env.TOPHBASE_ADMIN_PASSWORD && !projectConfig.adminPasswordHash) {
+    const generatedPassword = randomBytes(9).toString('base64url');
+    projectConfig.adminUsername = projectConfig.adminUsername ?? 'admin';
+    projectConfig.adminPasswordHash = await hashPassword(generatedPassword);
+    await saveProjectConfig(dataDir, projectConfig);
+    console.log('');
+    console.log('  No tophbase admin credentials configured — generated new ones:');
+    console.log(`    Username: ${projectConfig.adminUsername}`);
+    console.log(`    Password: ${generatedPassword}`);
+    console.log('  (save this password — it will not be shown again)');
+  }
+
   const config = buildConfig(projectConfig, projectName);
 
   const pgliteDir = path.join(dataDir, 'data');

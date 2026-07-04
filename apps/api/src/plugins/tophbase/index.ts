@@ -2,8 +2,30 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import type { Dialect } from '../../lib/project-config.js';
 import { saveProjectConfig, loadOrCreateProjectConfig, loadSecrets, saveSecrets } from '../../lib/project-config.js';
+import { verifyPassword } from '../auth/password.js';
+import { parseCookies, serializeCookie } from '../../lib/cookies.js';
+import { createSessionToken, verifySessionToken } from './session.js';
+import type { Config } from '../../config.js';
+
+const SESSION_COOKIE = 'tophbase_session';
+const LOGIN_PATH = '/tophbase/login';
+const LOGOUT_PATH = '/tophbase/logout';
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+async function verifyAdminPassword(admin: Config['admin'], password: string): Promise<boolean> {
+  if (admin.passwordHash) return verifyPassword(admin.passwordHash, password);
+  if (admin.passwordPlain) return timingSafeStringEqual(password, admin.passwordPlain);
+  return false;
+}
 
 const setupSchema = z.object({
   dialect: z.enum(['supabase', 'pocketbase', 'appwrite']),
@@ -78,6 +100,39 @@ function resolvePublicUrl(port: number): string {
 }
 
 const tophbasePlugin: FastifyPluginAsync = async (fastify) => {
+  fastify.post('/tophbase/login', async (request, reply) => {
+    const { username, password } = z.object({ username: z.string(), password: z.string() }).parse(request.body);
+    const { admin } = fastify.config;
+    const ok = username === admin.username && await verifyAdminPassword(admin, password);
+    if (!ok) {
+      return reply.status(401).send({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid username or password' } });
+    }
+    const token = createSessionToken(fastify.config.project.jwtSecret);
+    reply.header('set-cookie', serializeCookie(SESSION_COOKIE, token, {
+      maxAgeSeconds: 7 * 24 * 60 * 60,
+      secure: request.protocol === 'https',
+    }));
+    reply.send({ ok: true });
+  });
+
+  fastify.post('/tophbase/logout', async (request, reply) => {
+    reply.header('set-cookie', serializeCookie(SESSION_COOKIE, '', {
+      maxAgeSeconds: 0,
+      secure: request.protocol === 'https',
+    }));
+    reply.send({ ok: true });
+  });
+
+  fastify.addHook('onRequest', (request, reply, done) => {
+    if (request.url === LOGIN_PATH || request.url === LOGOUT_PATH) return done();
+    const cookies = parseCookies(request.headers.cookie);
+    if (!verifySessionToken(cookies[SESSION_COOKIE], fastify.config.project.jwtSecret)) {
+      reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Login required' } });
+      return;
+    }
+    done();
+  });
+
   fastify.get<{ Reply: TophbaseStatus }>('/tophbase/status', async (_req, reply) => {
     reply.header('Cache-Control', 'no-store');
     const { project, server, functions, nodeFunctions } = fastify.config;

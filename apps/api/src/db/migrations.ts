@@ -387,8 +387,12 @@ CREATE TRIGGER jobs_notify
   AFTER INSERT ON public.jobs
   FOR EACH ROW EXECUTE FUNCTION public.notify_jobs_queue();
 
+-- service_role only: jobs are created via POST /tophbase/jobs (which validates
+-- the target function exists) or server-side code using the secret key.
+-- No grants to authenticated/anon — direct REST inserts would bypass that
+-- validation and let any end user invoke arbitrary configured functions.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO service_role;
-GRANT SELECT, INSERT ON public.jobs TO authenticated;
+REVOKE ALL ON public.jobs FROM authenticated, anon;
 `;
 
 export async function runBootstrapMigrations(store: PGliteStore): Promise<void> {
