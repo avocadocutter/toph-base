@@ -387,10 +387,12 @@ CREATE TRIGGER jobs_notify
   AFTER INSERT ON public.jobs
   FOR EACH ROW EXECUTE FUNCTION public.notify_jobs_queue();
 
--- service_role only: jobs are created via POST /tophbase/jobs (which validates
--- the target function exists) or server-side code using the secret key.
--- No grants to authenticated/anon — direct REST inserts would bypass that
--- validation and let any end user invoke arbitrary configured functions.
+-- Jobs are created via POST /tophbase/jobs (admin dashboard) or POST
+-- /jobs/v1/:function_name (any authenticated caller — anon key, user JWT, or
+-- secret key), both of which validate the target function exists before
+-- inserting. No grants to authenticated/anon here — a direct REST insert on
+-- this table would skip that validation and let a caller queue jobs against
+-- arbitrary, possibly-nonexistent function names.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.jobs TO service_role;
 REVOKE ALL ON public.jobs FROM authenticated, anon;
 `;

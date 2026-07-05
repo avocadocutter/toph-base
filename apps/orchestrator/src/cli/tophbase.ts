@@ -34,6 +34,8 @@ const LOCAL_SECRETS_FILE = `${LOCAL_CONFIG_DIR}/secrets.json`;
 interface LocalConfig {
   port: number;
   migrationsDir: string;
+  jobMaxAttempts: number;
+  functionTimeoutMs: number;
   pgWirePort?: number;
   functionsDir?: string;
   nodeFunctionsDir?: string;
@@ -103,6 +105,38 @@ async function cmdFreshman(args: string[]) {
     migrationsDir = path.resolve(answer.trim() || suggested);
   }
 
+  const flagJobMaxAttempts = argValue(args, '--job-max-attempts');
+  let jobMaxAttempts: number;
+
+  if (flagJobMaxAttempts) {
+    jobMaxAttempts = Number(flagJobMaxAttempts);
+    if (isNaN(jobMaxAttempts) || jobMaxAttempts < 1) { console.error('tophbase freshman: --job-max-attempts must be a positive number'); process.exit(1); }
+  } else if (saved.jobMaxAttempts) {
+    jobMaxAttempts = saved.jobMaxAttempts;
+  } else {
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, '  Job max attempts [5]: ');
+    rl.close();
+    jobMaxAttempts = Number(answer.trim() || 5);
+    if (isNaN(jobMaxAttempts) || jobMaxAttempts < 1) { console.error('tophbase freshman: job max attempts must be a positive number'); process.exit(1); }
+  }
+
+  const flagFunctionTimeoutMs = argValue(args, '--function-timeout-ms');
+  let functionTimeoutMs: number;
+
+  if (flagFunctionTimeoutMs) {
+    functionTimeoutMs = Number(flagFunctionTimeoutMs);
+    if (isNaN(functionTimeoutMs) || functionTimeoutMs < 1) { console.error('tophbase freshman: --function-timeout-ms must be a positive number'); process.exit(1); }
+  } else if (saved.functionTimeoutMs) {
+    functionTimeoutMs = saved.functionTimeoutMs;
+  } else {
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await prompt(rl, '  Function invoke timeout, ms [30000]: ');
+    rl.close();
+    functionTimeoutMs = Number(answer.trim() || 30_000);
+    if (isNaN(functionTimeoutMs) || functionTimeoutMs < 1) { console.error('tophbase freshman: function timeout must be a positive number'); process.exit(1); }
+  }
+
   // ── Postgres wire protocol (optional) ────────────────────────────────────
   const flagPgWirePort = argValue(args, '--pg-wire-port');
   let pgWirePort: number | undefined;
@@ -163,8 +197,8 @@ async function cmdFreshman(args: string[]) {
     nodeFunctionsDir = answer.trim() ? path.resolve(answer.trim()) : suggested;
   }
 
-  if (isFirstRun || flagPort || flagMigrations || flagPgWirePort || flagFunctionsDir || flagNodeFunctionsDir || (!saved.functionsDir && functionsDir !== undefined) || (!saved.nodeFunctionsDir && nodeFunctionsDir !== undefined)) {
-    await writeLocalConfig({ port, migrationsDir, ...(pgWirePort !== undefined && { pgWirePort }), ...(functionsDir !== undefined && { functionsDir }), ...(nodeFunctionsDir !== undefined && { nodeFunctionsDir }) });
+  if (isFirstRun || flagPort || flagMigrations || flagJobMaxAttempts || flagFunctionTimeoutMs || flagPgWirePort || flagFunctionsDir || flagNodeFunctionsDir || (!saved.functionsDir && functionsDir !== undefined) || (!saved.nodeFunctionsDir && nodeFunctionsDir !== undefined)) {
+    await writeLocalConfig({ port, migrationsDir, jobMaxAttempts, functionTimeoutMs, ...(pgWirePort !== undefined && { pgWirePort }), ...(functionsDir !== undefined && { functionsDir }), ...(nodeFunctionsDir !== undefined && { nodeFunctionsDir }) });
     if (isFirstRun) console.log(`  Config saved to ${LOCAL_CONFIG_FILE}`);
   }
 
@@ -172,6 +206,8 @@ async function cmdFreshman(args: string[]) {
   console.log(`  Data dir:           ${dataDir}`);
   console.log(`  Port:               ${port}`);
   console.log(`  Migrations dir:     ${migrationsDir}`);
+  console.log(`  Job max attempts:   ${jobMaxAttempts}`);
+  console.log(`  Function timeout:   ${functionTimeoutMs}ms`);
   if (pgWirePort !== undefined) console.log(`  PG wire port:       ${pgWirePort}`);
   if (functionsDir !== undefined) console.log(`  Functions dir:      ${functionsDir}`);
   if (nodeFunctionsDir !== undefined) console.log(`  Node functions dir: ${nodeFunctionsDir}`);
@@ -181,6 +217,8 @@ async function cmdFreshman(args: string[]) {
   process.env.TOPHBASE_PROJECT = path.basename(process.cwd());
   process.env.TOPHBASE_PORT = String(port);
   process.env.TOPHBASE_MIGRATIONS_DIR = migrationsDir;
+  process.env.JOB_MAX_ATTEMPTS = String(jobMaxAttempts);
+  process.env.FUNCTION_TIMEOUT_MS = String(functionTimeoutMs);
   if (pgWirePort !== undefined) process.env.TOPHBASE_PG_PORT = String(pgWirePort);
   if (functionsDir !== undefined) process.env.TOPHBASE_FUNCTIONS_DIR = functionsDir;
   if (nodeFunctionsDir !== undefined) process.env.TOPHBASE_NODE_FUNCTIONS_DIR = nodeFunctionsDir;

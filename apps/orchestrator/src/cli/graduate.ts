@@ -395,6 +395,14 @@ async function cmdGraduateRailway(): Promise<void> {
     console.log(`No functions found at ${localFunctionsDir} — skipping`);
   }
 
+  const localJobMaxAttempts = typeof localConfig.jobMaxAttempts === 'number'
+    ? localConfig.jobMaxAttempts
+    : 5;
+
+  const localFunctionTimeoutMs = typeof localConfig.functionTimeoutMs === 'number'
+    ? localConfig.functionTimeoutMs
+    : 30_000;
+
   const localNodeFunctionsDir = typeof localConfig.nodeFunctionsDir === 'string'
     ? localConfig.nodeFunctionsDir
     : null;
@@ -424,6 +432,8 @@ async function cmdGraduateRailway(): Promise<void> {
   const freshmanFlags = [
     '--port "$PORT"',
     '--migrations-dir /app/migrations',
+    `--job-max-attempts ${localJobMaxAttempts}`,
+    `--function-timeout-ms ${localFunctionTimeoutMs}`,
     ...(hasFunctions ? ['--functions-dir /app/functions'] : []),
     ...(hasNodeFunctions ? ['--node-functions-dir /app/node-functions'] : []),
   ].join(' ');
@@ -451,6 +461,10 @@ async function cmdGraduateRailway(): Promise<void> {
       ...(hasMigrations ? ['COPY migrations ./migrations'] : []),
       ...(hasFunctions ? ['COPY functions ./functions'] : []),
       ...(hasNodeFunctions ? ['COPY node-functions ./node-functions'] : []),
+      // Each node function may ship its own package.json (native/WASM deps can't be
+      // loaded via bare https:// imports the way Deno edge functions can) — install them
+      // at build time so freshman doesn't have to shell out to npm on every cold start.
+      ...(hasNodeFunctions ? ['RUN for d in node-functions/*/; do [ -f "$d/package.json" ] && (cd "$d" && npm install --omit=dev) || true; done'] : []),
       `RUN echo '${JSON.stringify(stagePkg)}' > package.json`,
       `RUN pnpm add ./${apiTarball} ./${orchTarball}`,
       'RUN chmod +x start.sh',

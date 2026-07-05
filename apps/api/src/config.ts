@@ -23,8 +23,9 @@ export interface Config {
   rateLimit: { auth: number; api: number };
   features: { requireAuthForApi: boolean };
   storage: { maxFileSizeBytes: number };
-  functions: { dir: string | null };
-  nodeFunctions: { dir: string | null };
+  functions: { dir: string | null; invokeTimeoutMs: number };
+  nodeFunctions: { dir: string | null; invokeTimeoutMs: number };
+  jobs: { maxAttempts: number };
   admin: {
     username: string;
     // Set when the password is stored hashed in config.json.
@@ -37,6 +38,18 @@ export interface Config {
 
 function defaultDataDir(name: string): string {
   return path.join(os.homedir(), '.tophbase', 'projects', name);
+}
+
+function requiredEnvInt(env: NodeJS.ProcessEnv, name: string): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`Invalid value for env var ${name}: "${raw}" (must be a positive integer)`);
+  }
+  return n;
 }
 
 export function buildConfig(projectConfig: ProjectConfig, projectName = 'default'): Config {
@@ -70,9 +83,14 @@ export function buildConfig(projectConfig: ProjectConfig, projectName = 'default
     },
     functions: {
       dir: env.TOPHBASE_FUNCTIONS_DIR ?? null,
+      invokeTimeoutMs: requiredEnvInt(env, 'FUNCTION_TIMEOUT_MS'),
     },
     nodeFunctions: {
       dir: env.TOPHBASE_NODE_FUNCTIONS_DIR ?? null,
+      invokeTimeoutMs: requiredEnvInt(env, 'FUNCTION_TIMEOUT_MS'),
+    },
+    jobs: {
+      maxAttempts: requiredEnvInt(env, 'JOB_MAX_ATTEMPTS'),
     },
     admin: {
       username: env.TOPHBASE_ADMIN_USERNAME ?? projectConfig.adminUsername ?? 'admin',

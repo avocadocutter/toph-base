@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { spawn, spawnSync } from 'node:child_process';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, access } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
@@ -11,6 +11,7 @@ export interface NodeFunctionsOptions {
   publishableKey: string;
   secretKey: string;
   secretsPath: string;
+  invokeTimeoutMs: number;
 }
 
 interface FunctionProcess {
@@ -115,7 +116,6 @@ function isNodeAvailable(): boolean {
 }
 
 async function findFunctionFile(functionsDir: string, name: string): Promise<string | null> {
-  const { access } = await import('node:fs/promises');
   const candidates = [
     join(functionsDir, name, 'index.js'),
     join(functionsDir, name, 'index.mjs'),
@@ -141,8 +141,44 @@ async function readSecrets(secretsPath: string): Promise<Record<string, string>>
   return {};
 }
 
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Node functions may ship a package.json declaring npm dependencies (e.g. native/WASM
+// packages that can't be loaded via bare https:// imports the way Deno edge functions can).
+// Install them once per function directory, on demand, before spawning the runner.
+function npmInstall(dir: string): Promise<void> {
+  return new Promise((resolveInstall, reject) => {
+    const proc = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--omit=dev'], {
+      cwd: dir,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    proc.stderr!.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    proc.on('error', reject);
+    proc.on('exit', (code) => {
+      if (code === 0) resolveInstall();
+      else reject(new Error(`npm install failed (code ${code ?? 0}) in ${dir}: ${stderr.slice(0, 2000)}`));
+    });
+  });
+}
+
+async function ensureDependencies(funcDir: string, name: string, fastify: import('fastify').FastifyInstance): Promise<void> {
+  if (!(await exists(join(funcDir, 'package.json')))) return;
+  if (await exists(join(funcDir, 'node_modules'))) return;
+  fastify.log.info(`[node:${name}] installing dependencies (npm install)...`);
+  await npmInstall(funcDir);
+  fastify.log.info(`[node:${name}] dependencies installed`);
+}
+
 const nodeFunctionsPlugin: FastifyPluginAsync<NodeFunctionsOptions> = async (fastify, opts) => {
-  const { functionsDir, supabaseUrl, publishableKey, secretKey, secretsPath } = opts;
+  const { functionsDir, supabaseUrl, publishableKey, secretKey, secretsPath, invokeTimeoutMs } = opts;
 
   const runnerPath = join(tmpdir(), 'tophbase-node-runner.mjs');
   await writeFile(runnerPath, NODE_RUNNER, 'utf8');
@@ -160,6 +196,8 @@ const nodeFunctionsPlugin: FastifyPluginAsync<NodeFunctionsOptions> = async (fas
       await existing.ready;
       return existing.port;
     }
+
+    await ensureDependencies(dirname(funcPath), name, fastify);
 
     const port = await getFreePort();
     const secrets = await readSecrets(secretsPath);
@@ -277,7 +315,7 @@ const nodeFunctionsPlugin: FastifyPluginAsync<NodeFunctionsOptions> = async (fas
 
     let res: Response;
     const abort = new AbortController();
-    const fetchTimeout = setTimeout(() => abort.abort(), 30_000);
+    const fetchTimeout = setTimeout(() => abort.abort(), invokeTimeoutMs);
     try {
       res = await fetch(`http://127.0.0.1:${port}${request.url}`, {
         method: request.method,

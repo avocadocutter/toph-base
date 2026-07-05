@@ -204,6 +204,7 @@ export async function createServer(): Promise<ServerContext> {
     publishableKey: config.project.publishableKey,
     secretKey: config.project.secretKey,
     secretsPath: path.join(config.project.dataDir, 'secrets.json'),
+    invokeTimeoutMs: config.functions.invokeTimeoutMs,
   });
 
   await fastify.register(nodeFunctionsPlugin, {
@@ -212,9 +213,10 @@ export async function createServer(): Promise<ServerContext> {
     publishableKey: config.project.publishableKey,
     secretKey: config.project.secretKey,
     secretsPath: path.join(config.project.dataDir, 'secrets.json'),
+    invokeTimeoutMs: config.nodeFunctions.invokeTimeoutMs,
   });
 
-  await fastify.register(jobQueuePlugin, { store });
+  await fastify.register(jobQueuePlugin, { store, maxAttempts: config.jobs.maxAttempts });
 
   startCronBridge(store);
 

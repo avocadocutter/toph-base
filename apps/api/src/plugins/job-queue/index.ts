@@ -1,10 +1,19 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import type { PGliteStore } from '../../db/pglite-store.js';
+import { resolveLocalProject } from '../../hooks/resolve-project.js';
+import { authenticateProject } from '../../hooks/authenticate.js';
+import { listFunctions, listNodeFunctions } from '../tophbase/index.js';
 
 export interface JobQueueOptions {
   store: PGliteStore;
-  maxAttempts?: number;
+  maxAttempts: number;
 }
+
+const createJobSchema = z.object({
+  runtime: z.enum(['edge', 'node']).default('edge'),
+  payload: z.record(z.unknown()).default({}),
+});
 
 interface QueuedJob {
   id: string;
@@ -35,7 +44,7 @@ const RUNTIME_PREFIX: Record<QueuedJob['runtime'], string> = {
 };
 
 const jobQueuePlugin: FastifyPluginAsync<JobQueueOptions> = async (fastify, opts) => {
-  const { store, maxAttempts = 5 } = opts;
+  const { store, maxAttempts } = opts;
 
   let running = false;
   let rerunRequested = false;
@@ -105,6 +114,35 @@ const jobQueuePlugin: FastifyPluginAsync<JobQueueOptions> = async (fastify, opts
       await drain();
     }
   }
+
+  // POST /jobs/v1/:function_name — public job creation, open to any authenticated
+  // caller (anon key, user JWT, or secret key), unlike the admin-only /tophbase/jobs.
+  // Job *execution* still runs unauthenticated (see processJob above); only the
+  // creation call is gated.
+  fastify.post<{ Params: { function_name: string } }>('/jobs/v1/:function_name', {
+    preHandler: [resolveLocalProject, authenticateProject],
+  }, async (request, reply) => {
+    const { function_name } = request.params;
+    const body = createJobSchema.parse(request.body ?? {});
+    const { functions, nodeFunctions } = fastify.config;
+
+    const dir = body.runtime === 'edge' ? functions.dir : nodeFunctions.dir;
+    if (!dir) {
+      return reply.status(400).send({ error: { code: 'NOT_CONFIGURED', message: `${body.runtime === 'edge' ? 'Edge' : 'Node'} functions are not configured` } });
+    }
+    const available = body.runtime === 'edge' ? await listFunctions(dir, '') : await listNodeFunctions(dir, '');
+    if (!available.some(f => f.name === function_name)) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `${body.runtime} function '${function_name}' not found` } });
+    }
+
+    const result = await store.query(
+      `INSERT INTO public.jobs (function_name, runtime, payload)
+       VALUES ($1, $2, $3)
+       RETURNING id, function_name, runtime, payload, status, attempts, error, result, created_at, updated_at`,
+      [function_name, body.runtime, JSON.stringify(body.payload)],
+    );
+    reply.status(201).send({ job: result.rows[0] });
+  });
 
   const unlisten = await store.getPglite().listen('jobs_queue', () => {
     drain().catch(err => fastify.log.error(err, 'job-queue: drain failed'));

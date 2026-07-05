@@ -27,8 +27,9 @@ function buildConfig(admin: Config['admin']): Config {
     rateLimit: { auth: 10, api: 1000 },
     features: { requireAuthForApi: false },
     storage: { maxFileSizeBytes: 52_428_800 },
-    functions: { dir: null },
-    nodeFunctions: { dir: null },
+    functions: { dir: null, invokeTimeoutMs: 30_000 },
+    nodeFunctions: { dir: null, invokeTimeoutMs: 30_000 },
+    jobs: { maxAttempts: 5 },
     admin,
   };
 }

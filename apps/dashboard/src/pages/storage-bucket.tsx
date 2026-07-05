@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { storageRequest, storageSignedDownloadUrl } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { RecordSidebar } from '@/components/ui/record-sidebar';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ChevronRight,
@@ -66,6 +67,7 @@ export function StorageBucketPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
+  const [detailItem, setDetailItem] = useState<{ item: StorageObject; path: string } | null>(null);
 
   const prefix = searchParams.get('prefix') ?? '';
 
@@ -305,25 +307,30 @@ export function StorageBucketPage() {
           return (
             <div
               key={fullName}
-              className={`grid grid-cols-[24px_1fr_100px_160px_80px] items-center gap-3 border-b border-border px-4 py-2 text-sm last:border-b-0 hover:bg-accent/20 ${isChecked ? 'bg-accent/30' : ''}`}
+              className={`grid grid-cols-[24px_1fr_100px_160px_80px] items-center gap-3 border-b border-border px-4 py-2 text-sm last:border-b-0 hover:bg-accent/20 ${isChecked ? 'bg-accent/30' : ''} ${!isDir ? 'cursor-pointer' : ''}`}
+              onClick={() => !isDir && setDetailItem({ item, path: `${bucket}/${fullName}` })}
             >
               <input
                 type="checkbox"
                 className="accent-primary"
                 checked={isChecked}
                 disabled={isDir}
+                onClick={(e) => e.stopPropagation()}
                 onChange={() => !isDir && toggleSelect(fullName)}
               />
 
               <button
                 className="flex items-center gap-2 text-left truncate"
-                onClick={() => isDir ? navigateToFolder(item.name) : undefined}
-                disabled={!isDir}
+                onClick={(e) => {
+                  if (!isDir) return;
+                  e.stopPropagation();
+                  navigateToFolder(item.name);
+                }}
               >
                 {isDir
                   ? <Folder size={16} className="shrink-0 text-amber-400" />
                   : mimeIcon(item.metadata?.mimetype)}
-                <span className={`truncate ${isDir ? 'font-medium hover:underline cursor-pointer' : ''}`}>
+                <span className={`truncate hover:underline cursor-pointer ${isDir ? 'font-medium' : ''}`}>
                   {isDir ? item.name.replace(/\/$/, '') : item.name}
                 </span>
               </button>
@@ -343,7 +350,7 @@ export function StorageBucketPage() {
                     size="icon"
                     className="h-7 w-7 text-muted-foreground"
                     title="Download"
-                    onClick={() => handleDownload(fullName)}
+                    onClick={(e) => { e.stopPropagation(); handleDownload(fullName); }}
                   >
                     <Download size={14} />
                   </Button>
@@ -353,6 +360,12 @@ export function StorageBucketPage() {
           );
         })}
       </div>
+
+      <RecordSidebar
+        title={detailItem ? detailItem.item.name : ''}
+        record={detailItem ? { path: detailItem.path, ...detailItem.item } : null}
+        onClose={() => setDetailItem(null)}
+      />
     </div>
   );
 }

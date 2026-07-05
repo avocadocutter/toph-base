@@ -135,6 +135,8 @@ Most config is handled interactively by `tophbase freshman` and saved to `.tophb
 | `ACCESS_TOKEN_EXPIRY` | Access token TTL in seconds | `3600` |
 | `REFRESH_TOKEN_EXPIRY` | Refresh token TTL in seconds | `604800` |
 | `STORAGE_MAX_FILE_SIZE_BYTES` | Max upload size | `52428800` (50 MB) |
+| `JOB_MAX_ATTEMPTS` | Max retries for a queued job before it's marked `failed` | **required, no default** |
+| `FUNCTION_TIMEOUT_MS` | Max time (ms) to wait for an Edge/Node Function to respond before returning `FUNCTION_TIMEOUT` | **required, no default** |
 
 ---
 

@@ -11,6 +11,7 @@ export interface EdgeFunctionsOptions {
   publishableKey: string;
   secretKey: string;
   secretsPath: string;
+  invokeTimeoutMs: number;
 }
 
 interface FunctionProcess {
@@ -109,7 +110,7 @@ async function readSecrets(secretsPath: string): Promise<Record<string, string>>
 }
 
 const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fastify, opts) => {
-  const { functionsDir, supabaseUrl, publishableKey, secretKey, secretsPath } = opts;
+  const { functionsDir, supabaseUrl, publishableKey, secretKey, secretsPath, invokeTimeoutMs } = opts;
 
   const denoAvailable = isDenoAvailable();
 
@@ -271,7 +272,7 @@ const edgeFunctionsPlugin: FastifyPluginAsync<EdgeFunctionsOptions> = async (fas
 
     let res: Response;
     const abort = new AbortController();
-    const fetchTimeout = setTimeout(() => abort.abort(), 30_000);
+    const fetchTimeout = setTimeout(() => abort.abort(), invokeTimeoutMs);
     try {
       res = await fetch(`http://127.0.0.1:${port}${request.url}`, {
         method: request.method,

@@ -82,7 +82,7 @@ describe('job-queue plugin', () => {
   it('dequeues a pending job and invokes the matching Edge Function route', async () => {
     const handler = vi.fn(async (_request, reply) => reply.send({ ok: true }));
     fastify.post('/functions/v1/process-document', handler);
-    await fastify.register(jobQueuePlugin, { store });
+    await fastify.register(jobQueuePlugin, { store, maxAttempts: 5 });
     await fastify.ready();
 
     await insertJob(store, 'process-document', 'edge', { foo: 'bar' });
@@ -96,7 +96,7 @@ describe('job-queue plugin', () => {
     const nodeHandler = vi.fn(async (_request, reply) => reply.send({ ok: true }));
     fastify.post('/functions/v1/resize-image', edgeHandler);
     fastify.post('/node-functions/v1/resize-image', nodeHandler);
-    await fastify.register(jobQueuePlugin, { store });
+    await fastify.register(jobQueuePlugin, { store, maxAttempts: 5 });
     await fastify.ready();
 
     await insertJob(store, 'resize-image', 'node');
@@ -126,7 +126,7 @@ describe('job-queue plugin', () => {
     await insertJob(store, 'catch-up', 'edge');
 
     fastify.post('/functions/v1/catch-up', async (_request, reply) => reply.send({ ok: true }));
-    await fastify.register(jobQueuePlugin, { store });
+    await fastify.register(jobQueuePlugin, { store, maxAttempts: 5 });
     await fastify.ready();
 
     await waitFor(async () => (await jobStatus(store, 'catch-up'))?.status === 'done');

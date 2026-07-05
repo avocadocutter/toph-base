@@ -46,7 +46,7 @@ export interface EdgeFunction {
   url: string;
 }
 
-async function listNodeFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
+export async function listNodeFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
   const results: EdgeFunction[] = [];
   try {
     const entries = await fs.readdir(functionsDir, { withFileTypes: true });
@@ -69,7 +69,7 @@ async function listNodeFunctions(functionsDir: string, baseUrl: string): Promise
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function listFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
+export async function listFunctions(functionsDir: string, baseUrl: string): Promise<EdgeFunction[]> {
   const results: EdgeFunction[] = [];
   try {
     const entries = await fs.readdir(functionsDir, { withFileTypes: true });
