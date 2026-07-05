@@ -37,6 +37,25 @@ process.on('unhandledRejection', (reason) => {
 const [funcPath, portStr] = process.argv.slice(2);
 const port = parseInt(portStr, 10);
 
+// Resolves the caller's identity from the incoming request's Authorization
+// header by delegating to the local /auth/v1/user endpoint (the same JWT
+// verification the REST API uses) — returns null for anon/missing/invalid tokens.
+globalThis.Tophbase = {
+  async getUser(req) {
+    const auth = req.headers.get('authorization');
+    if (!auth) return null;
+    try {
+      const res = await fetch(\`\${process.env.SUPABASE_URL}/auth/v1/user\`, {
+        headers: { authorization: auth, apikey: process.env.SUPABASE_PUBLISHABLE_KEY },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+};
+
 let mod;
 try {
   mod = await import(\`file://\${funcPath}\`);

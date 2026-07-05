@@ -20,10 +20,32 @@ interface FunctionProcess {
   ready: Promise<void>;
 }
 
+// Resolves the caller's identity from the incoming request's Authorization
+// header by delegating to the local /auth/v1/user endpoint (the same JWT
+// verification the REST API uses) — returns null for anon/missing/invalid tokens.
+const TOPHBASE_AUTH_GLOBAL = `
+globalThis.Tophbase = {
+  async getUser(req) {
+    const auth = req.headers.get('authorization');
+    if (!auth) return null;
+    try {
+      const res = await fetch(\`\${Deno.env.get('SUPABASE_URL')}/auth/v1/user\`, {
+        headers: { authorization: auth, apikey: Deno.env.get('SUPABASE_PUBLISHABLE_KEY') },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+};
+`;
+
 // Shim that replaces the Deno std http/server.ts `serve` export.
 // Injected via Deno import map so the real Deno.serve is called directly —
 // no runtime monkey-patching needed.
 const DENO_SERVE_SHIM = `
+${TOPHBASE_AUTH_GLOBAL}
 const _port = parseInt(Deno.env.get('TOPHBASE_PORT') ?? '0', 10);
 
 export async function serve(handler, _options) {
@@ -40,6 +62,7 @@ export type Handler = (req: Request) => Response | Promise<Response>;
 
 // Fallback runner for functions that call Deno.serve() directly (not via std serve).
 const DENO_RUNNER_FALLBACK = `
+${TOPHBASE_AUTH_GLOBAL}
 const [funcPath, portStr] = Deno.args;
 const port = parseInt(portStr, 10);
 const _orig = Deno.serve.bind(Deno);
